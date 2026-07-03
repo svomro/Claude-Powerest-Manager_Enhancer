@@ -2,7 +2,7 @@
 // @name         Claude Powerest Manager Enhancer | 导航 导出 管理 跳转 分支 对话 管理器 导出器 export navigate jump branch helper
 // @name:zh-CN   Claude神级拓展增强脚本 | (管理 增强 导出 导航 跳转 分支 分叉 管理器 增强器 导出器 导航器 助手) | (manage enhance export navigate jump branch fork manager enhancer exporter navigator helper)
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
+// @version      1.2.6
 // @description  一站式搜索、筛选、批量管理所有对话。强大的JSON导出(原始/自定义/含附件)。为聊天框注入新功能，如从任意消息分支、跨分支全局导航、强制PDF深度解析、浮动线性导航面板等。关键词: 管理 增强 导出 导航 跳转 分支 分叉 管理器 增强器 导出器 导航器 助手 manage enhance export navigate jump branch fork manager enhancer exporter navigator helper
 // @description:zh-CN [管理器] 右下角打开管理器面板开启一站式搜索、筛选、批量管理所有对话。强大的JSON导出(原始/自定义/含附件)。[增强器]为聊天框注入新功能，如从任意消息分支、跨分支全局导航、强制PDF深度解析、浮动线性导航面板等。
 // @description:en [Manager] Opens a management panel in the bottom-right corner for one-stop searching, filtering, and batch management of all conversations. Powerful JSON export (raw/custom/with attachments). [Enhancer] Injects new features into the chat interface, such as branching from any message, cross-branch navigation, forced deep PDF parsing, floating linear navigation panel, and more.
@@ -22,7 +22,7 @@
 (function(window) {
     'use strict';
 
-    const LOG_PREFIX = "[ClaudePowerestManager&Enhancer v1.2.5]:"
+    const LOG_PREFIX = "[ClaudePowerestManager&Enhancer v1.2.6]:"
     console.log(LOG_PREFIX, "脚本已加载。");
 
 
@@ -282,6 +282,12 @@
                 'export.exportFailed': '导出失败 ({0}/{1}): {2}',
                 'export.exportingProgress': '({0}/{1}) 正在导出: {2}',
                 'export.sessionFailed': '导出会话 {0} 失败',
+                'codeExport.menuLabel': '导出会话',
+                'codeExport.menuSubtitle': '导出会话记录和附件到所选文件夹',
+                'codeExport.exporting': '正在导出会话...',
+                'codeExport.complete': 'Claude Code 会话和附件已导出到所选文件夹。',
+                'codeExport.partial': '会话已导出，但有 {0} 个附件下载失败。',
+                'codeExport.failed': 'Claude Code 会话导出失败',
 
                 // API error messages
                 'api.orgRequestFailed': '组织API请求失败: {0}',
@@ -539,6 +545,12 @@
                 'export.exportFailed': 'Export failed ({0}/{1}): {2}',
                 'export.exportingProgress': '({0}/{1}) Exporting: {2}',
                 'export.sessionFailed': 'Failed to export session {0}',
+                'codeExport.menuLabel': 'Export session',
+                'codeExport.menuSubtitle': 'Export transcript and attachments to a folder',
+                'codeExport.exporting': 'Exporting session...',
+                'codeExport.complete': 'Claude Code session and attachments exported to the selected folder.',
+                'codeExport.partial': 'Session exported, but {0} attachments failed to download.',
+                'codeExport.failed': 'Failed to export Claude Code session',
 
                 // API error messages
                 'api.orgRequestFailed': 'Organization API request failed: {0}',
@@ -875,6 +887,60 @@
             if (this.orgUuid) return this.orgUuid;
             const info = await this.getOrganizationInfo();
             return info.uuid;
+        },
+        getCurrentCodeSessionId() {
+            const match = location.pathname.match(/^\/code\/(session_[A-Za-z0-9_-]+)\/?$/);
+            return match ? match[1] : null;
+        },
+        getCodeApiHeaders(orgId) {
+            return {
+                'anthropic-version': '2023-06-01',
+                'x-organization-uuid': orgId
+            };
+        },
+        async fetchCodeSessionMetadata(sessionId) {
+            const orgId = await this.getOrgUuid();
+            const url = `/v1/code/sessions/${encodeURIComponent(sessionId)}`;
+            const response = await fetch(url, {
+                credentials: 'include',
+                headers: this.getCodeApiHeaders(orgId)
+            });
+            if (!response.ok) throw new Error(`Code session request failed: GET ${url} -> ${response.status}`);
+            return { session: await response.json(), headers: this.getCodeApiHeaders(orgId) };
+        },
+        async fetchCodeSessionEvents(sessionId, headers) {
+            const events = [];
+            let cursor = null;
+
+            for (let page = 0; page < 100; page++) {
+                const params = new URLSearchParams({ limit: '500', sort_order: 'asc' });
+                if (cursor) params.set('cursor', cursor);
+                const url = `/v1/code/sessions/${encodeURIComponent(sessionId)}/events?${params}`;
+                const response = await fetch(url, {
+                    credentials: 'include',
+                    headers
+                });
+                if (!response.ok) throw new Error(`Code session transcript request failed: GET ${url} -> ${response.status}`);
+
+                const data = await response.json();
+                if (!Array.isArray(data.data)) throw new Error(`Code session transcript response is missing data: GET ${url}`);
+                events.push(...data.data);
+                const nextCursor = data.next_cursor || null;
+                if (!nextCursor || nextCursor === cursor) break;
+                cursor = nextCursor;
+            }
+
+            return events;
+        },
+        async getCodeSessionExportData(sessionId) {
+            if (!/^session_[A-Za-z0-9_-]+$/.test(sessionId)) throw new Error('Invalid Claude Code session ID.');
+
+            const { session, headers } = await this.fetchCodeSessionMetadata(sessionId);
+            const events = await this.fetchCodeSessionEvents(sessionId, headers);
+            return {
+                session,
+                events
+            };
         },
         async getConversations() {
             const orgId = await this.getOrgUuid();
@@ -2086,6 +2152,284 @@
             const cachedItem = this.conversationsCache.find(c => c.uuid === convUuid);
             if (cachedItem) cachedItem.name = newTitle;
             return true;
+        },
+        sanitizeFileNamePart(value, fallback = 'Untitled') {
+            const sanitized = String(value || fallback)
+                .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+                .replace(/[. ]+$/g, '')
+                .trim();
+            return (sanitized || fallback).slice(0, 160);
+        },
+        getCodeSessionTitle(sessionData) {
+            const raw = sessionData?.response_shape?.title
+                || sessionData?.title
+                || sessionData?.name
+                || sessionData?.session?.title
+                || sessionData?.session?.name
+                || '';
+            const trimmed = typeof raw === 'string' ? raw.trim() : '';
+            return trimmed;
+        },
+        deriveCodeSessionTitleFromEvents(events, maxChars = 40) {
+            if (!Array.isArray(events)) return '';
+            for (const event of events) {
+                const payload = event?.payload && typeof event.payload === 'object' ? event.payload : event;
+                const message = payload?.message;
+                if (!message) continue;
+                let text = '';
+                if (typeof message.content === 'string') {
+                    text = message.content;
+                } else if (Array.isArray(message.content)) {
+                    for (const block of message.content) {
+                        if (block && typeof block === 'object' && typeof block.text === 'string') {
+                            text += (text ? ' ' : '') + block.text;
+                            if (text.length > maxChars * 3) break;
+                        }
+                    }
+                }
+                const firstLine = text.split(/\r?\n/).map(s => s.trim()).find(Boolean);
+                if (firstLine) return firstLine.slice(0, maxChars);
+            }
+            return '';
+        },
+        resolveCodeSessionTitle(exportData, sessionId) {
+            const direct = this.getCodeSessionTitle(exportData?.session);
+            if (direct) return direct;
+            const derived = this.deriveCodeSessionTitleFromEvents(exportData?.events);
+            if (derived) return derived;
+            const idSuffix = String(sessionId || '').replace(/^session_/, '').slice(0, 8);
+            return idSuffix ? `session_${idSuffix}` : 'Untitled';
+        },
+        getImageExtension(mimeType) {
+            const normalized = String(mimeType || '').toLowerCase().split(';', 1)[0];
+            const extensions = {
+                'image/jpeg': 'jpg',
+                'image/png': 'png',
+                'image/gif': 'gif',
+                'image/webp': 'webp',
+                'image/svg+xml': 'svg',
+                'image/bmp': 'bmp',
+                'image/tiff': 'tiff',
+                'image/avif': 'avif',
+                'image/heic': 'heic',
+                'image/heif': 'heif'
+            };
+            return extensions[normalized] || 'bin';
+        },
+        parseInlineImage(block) {
+            if (!block || typeof block !== 'object' || block.type !== 'image') return null;
+
+            const source = block.source && typeof block.source === 'object' ? block.source : {};
+            let data = source.data || block.data;
+            let mimeType = source.media_type || block.mimeType || block.media_type || 'image/png';
+            if (typeof data !== 'string' || !data) return null;
+
+            const dataUrlMatch = data.match(/^data:([^;,]+);base64,([\s\S]+)$/i);
+            if (dataUrlMatch) {
+                mimeType = dataUrlMatch[1];
+                data = dataUrlMatch[2];
+            }
+
+            return { data: data.replace(/\s/g, ''), mimeType };
+        },
+        inlineImageToBlob(image) {
+            const binary = atob(image.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return new Blob([bytes], { type: image.mimeType });
+        },
+        buildCodeAttachmentFileName(fileName, uniqueId, fallbackExtension = '') {
+            const originalName = this.sanitizeFileNamePart(fileName || `attachment.${fallbackExtension || 'bin'}`, 'attachment.bin');
+            const lastDot = originalName.lastIndexOf('.');
+            const hasExtension = lastDot > 0 && lastDot < originalName.length - 1;
+            const baseName = hasExtension ? originalName.slice(0, lastDot) : originalName;
+            const extension = hasExtension ? originalName.slice(lastDot) : fallbackExtension ? `.${fallbackExtension}` : '';
+            const safeId = this.sanitizeFileNamePart(uniqueId || 'no-id', 'no-id');
+            return `${baseName}_[${safeId}]${extension}`;
+        },
+        collectCodeSessionAttachments(exportData) {
+            const remoteByUuid = new Map();
+            const inlineByContent = new Map();
+            const events = Array.isArray(exportData?.events) ? exportData.events : [];
+
+            events.forEach((event, eventIndex) => {
+                const payload = event?.payload && typeof event.payload === 'object' ? event.payload : event;
+                if (!payload || typeof payload !== 'object') return;
+
+                const fileAttachments = [];
+                const attachmentArrays = [payload.file_attachments, payload.message?.file_attachments];
+                for (const candidates of attachmentArrays) {
+                    if (!Array.isArray(candidates)) continue;
+                    for (const file of candidates) {
+                        if (!file || typeof file !== 'object') continue;
+                        const fileUuid = typeof file.file_uuid === 'string' ? file.file_uuid : '';
+                        const downloadUrl = file.download_url || file.url || file.document_asset?.url || file.preview_url || '';
+                        if (!fileUuid && !downloadUrl) continue;
+
+                        const key = fileUuid || `url:${downloadUrl}`;
+                        if (!remoteByUuid.has(key)) {
+                            const fileName = file.file_name || file.name || `attachment-${eventIndex + 1}`;
+                            remoteByUuid.set(key, {
+                                kind: 'remote',
+                                key,
+                                fileUuid,
+                                downloadUrl,
+                                fileName: this.buildCodeAttachmentFileName(fileName, fileUuid || eventIndex + 1),
+                                isImage: file.is_image === true,
+                                inlineFallback: null
+                            });
+                        }
+                        fileAttachments.push(remoteByUuid.get(key));
+                    }
+                }
+
+                const content = payload.message?.content;
+                if (!Array.isArray(content)) return;
+                const imageAttachments = fileAttachments.filter(file => file.isImage);
+                let imageIndex = 0;
+
+                for (const block of content) {
+                    if (!block || typeof block !== 'object' || block.type !== 'image') continue;
+                    const inlineImage = this.parseInlineImage(block);
+                    const blockUuid = typeof block.file_uuid === 'string' ? block.file_uuid : '';
+                    const pairedRemote = blockUuid
+                        ? remoteByUuid.get(blockUuid)
+                        : imageAttachments[imageIndex];
+
+                    if (pairedRemote && inlineImage) {
+                        pairedRemote.inlineFallback = inlineImage;
+                    } else if (blockUuid) {
+                        if (!remoteByUuid.has(blockUuid)) {
+                            const extension = inlineImage ? this.getImageExtension(inlineImage.mimeType) : '';
+                            remoteByUuid.set(blockUuid, {
+                                kind: 'remote',
+                                key: blockUuid,
+                                fileUuid: blockUuid,
+                                downloadUrl: '',
+                                fileName: this.buildCodeAttachmentFileName(block.file_name, blockUuid, extension),
+                                isImage: true,
+                                inlineFallback: inlineImage
+                            });
+                        }
+                    } else if (inlineImage) {
+                        const contentKey = `${inlineImage.mimeType}:${inlineImage.data}`;
+                        if (!inlineByContent.has(contentKey)) {
+                            const extension = this.getImageExtension(inlineImage.mimeType);
+                            const messageId = payload.uuid || event?.uuid || `event-${eventIndex + 1}`;
+                            inlineByContent.set(contentKey, {
+                                kind: 'inline',
+                                key: contentKey,
+                                image: inlineImage,
+                                fileName: this.buildCodeAttachmentFileName(block.file_name || `attachment-${eventIndex + 1}-${imageIndex + 1}.${extension}`, messageId, extension)
+                            });
+                        }
+                    }
+                    imageIndex++;
+                }
+            });
+
+            return [...remoteByUuid.values(), ...inlineByContent.values()];
+        },
+        async fileExists(directoryHandle, fileName) {
+            try {
+                await directoryHandle.getFileHandle(fileName, { create: false });
+                return true;
+            } catch (error) {
+                if (error.name === 'NotFoundError') return false;
+                throw error;
+            }
+        },
+        async writeFileToDirectory(directoryHandle, fileName, content) {
+            const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+            const writable = await fileHandle.createWritable();
+            try {
+                await writable.write(content);
+            } finally {
+                await writable.close();
+            }
+        },
+        async exportCodeSessionAttachments(exportData, exportDirHandle, orgUuid, statusCallback) {
+            const attachments = this.collectCodeSessionAttachments(exportData);
+            const result = { total: attachments.length, downloaded: 0, skipped: 0, failed: 0 };
+            if (attachments.length === 0) return result;
+
+            statusCallback(t('export.foundAttachments', 'export.foundAttachments', attachments.length), 'info');
+            for (let i = 0; i < attachments.length; i++) {
+                const attachment = attachments[i];
+                let fileName = attachment.fileName;
+                try {
+                    if (await this.fileExists(exportDirHandle, fileName)) {
+                        result.skipped++;
+                        statusCallback(t('export.skipExistingFile', 'export.skipExistingFile', i + 1, attachments.length, fileName), 'info');
+                        continue;
+                    }
+
+                    statusCallback(t('export.downloading', 'export.downloading', i + 1, attachments.length, fileName), 'info');
+                    let content;
+                    if (attachment.kind === 'inline') {
+                        content = this.inlineImageToBlob(attachment.image);
+                    } else {
+                        const downloadUrl = attachment.downloadUrl
+                            || (attachment.fileUuid ? `/api/organizations/${encodeURIComponent(orgUuid)}/files/${encodeURIComponent(attachment.fileUuid)}/contents` : '');
+                        if (!downloadUrl) throw new Error(t('export.noDownloadUrl'));
+                        try {
+                            content = await ClaudeAPI.downloadFile(downloadUrl);
+                        } catch (error) {
+                            if (!attachment.inlineFallback) throw error;
+                            const extension = this.getImageExtension(attachment.inlineFallback.mimeType);
+                            fileName = this.buildCodeAttachmentFileName(fileName.replace(/_\[[^\]]+\](?=\.[^.]+$|$)/, ''), attachment.fileUuid, extension);
+                            content = this.inlineImageToBlob(attachment.inlineFallback);
+                        }
+                    }
+
+                    await this.writeFileToDirectory(exportDirHandle, fileName, content);
+                    result.downloaded++;
+                } catch (error) {
+                    result.failed++;
+                    console.error(`${LOG_PREFIX} 处理 Claude Code 附件 ${fileName} 失败:`, error);
+                    statusCallback(t('export.processAttachmentFailed', 'export.processAttachmentFailed', fileName), 'error');
+                }
+            }
+            return result;
+        },
+        async performCodeSessionExport(sessionId, statusCallback = () => {}) {
+            if (typeof window.showDirectoryPicker !== 'function') throw new Error(t('error.browserNotSupported'));
+            statusCallback(t('export.requestingFolder'), 'info');
+
+            let rootDirHandle;
+            try {
+                rootDirHandle = await window.showDirectoryPicker();
+            } catch (error) {
+                if (error.name === 'AbortError') return { cancelled: true };
+                throw error;
+            }
+
+            const exportData = await ClaudeAPI.getCodeSessionExportData(sessionId);
+            const orgInfo = await ClaudeAPI.getOrganizationInfo();
+            if (!orgInfo) throw new Error(t('export.orgInfoRequired'));
+
+            statusCallback(t('export.creatingDirectory'), 'info');
+            const orgName = this.sanitizeFileNamePart((orgInfo.name || 'unknown_org').replace(/'s Organization$/, ''), 'unknown_org');
+            const sessionTitle = this.sanitizeFileNamePart(this.resolveCodeSessionTitle(exportData, sessionId));
+            const pathParts = ['Claude_Exports', `[${orgName}]`, `[ClaudeCode]_[${sessionTitle}]_[${sessionId}]`];
+            let exportDirHandle = rootDirHandle;
+            for (const part of pathParts) {
+                exportDirHandle = await exportDirHandle.getDirectoryHandle(part, { create: true });
+            }
+
+            const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
+            const fileName = `${sessionId}-${timestamp}.json`;
+            statusCallback(t('status.writingFile').replace('{0}', fileName), 'info');
+            await this.writeFileToDirectory(exportDirHandle, fileName, JSON.stringify(exportData, null, 2));
+            const attachments = await this.exportCodeSessionAttachments(exportData, exportDirHandle, orgInfo.uuid, statusCallback);
+
+            return {
+                cancelled: false,
+                fileName,
+                eventCount: exportData.events.length,
+                directoryName: pathParts[pathParts.length - 1],
+                attachments
+            };
         },
         async exportAttachmentsForConversation(historyData, exportDirHandle, statusCallback) {
             const { nodes } = ClaudeAPI.buildConversationTree(historyData.chat_messages);
@@ -3885,9 +4229,132 @@
         }
     };
 
+    // =========================================================================
+    // 9. Claude Code 会话导出
+    // =========================================================================
+    const CodeSessionExportEnhancer = {
+        menuItemId: 'cpm-code-export-session',
+        toastTimer: null,
+        isExporting: false,
+
+        getSessionActionsMenu() {
+            const button = document.querySelector('button[aria-label="Session actions"][aria-controls]');
+            const menuId = button?.getAttribute('aria-controls');
+            const menu = menuId ? document.getElementById(menuId) : null;
+            return menu?.getAttribute('role') === 'menu' ? menu : null;
+        },
+
+        getMenuItems(menu) {
+            return Array.from(menu.querySelectorAll('[role="menuitem"]'))
+                .filter(item => item.closest('[role="menu"]') === menu);
+        },
+
+        sync() {
+            const sessionId = ClaudeAPI.getCurrentCodeSessionId();
+            if (!sessionId) {
+                document.getElementById(this.menuItemId)?.remove();
+                return;
+            }
+
+            const menu = this.getSessionActionsMenu();
+            if (!menu || document.getElementById(this.menuItemId)) return;
+
+            const items = this.getMenuItems(menu);
+            const nativeExportLabel = t('codeExport.menuLabel');
+            const exportLabels = new Set([nativeExportLabel, 'Export session', '导出会话']);
+            if (items.some(item => Array.from(exportLabels).some(label => item.textContent?.trim().startsWith(label)))) return;
+
+            const copyLinkItem = items.find(item => item.textContent?.trim().startsWith('Copy link'));
+            const template = copyLinkItem || items.find(item => !item.hasAttribute('aria-haspopup'));
+            if (!template) return;
+
+            const item = template.cloneNode(false);
+            item.id = this.menuItemId;
+            item.dataset.cpmCodeExport = 'true';
+            item.removeAttribute('aria-haspopup');
+            item.removeAttribute('aria-expanded');
+            item.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="shrink-0" style="width: var(--class-base-icon); height: var(--class-base-icon);">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"></path>
+                </svg>
+                <span class="flex min-w-0 flex-col py-p3">
+                    <span data-cpm-code-export-label class="truncate">${this.isExporting ? t('codeExport.exporting') : nativeExportLabel}</span>
+                    <span class="truncate text-footnote text-t6">${t('codeExport.menuSubtitle')}</span>
+                </span>`;
+
+            if (this.isExporting) item.setAttribute('aria-disabled', 'true');
+            item.addEventListener('click', event => {
+                event.preventDefault();
+                if (!this.isExporting) void this.exportSession(sessionId);
+            });
+            item.addEventListener('keydown', event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    item.click();
+                }
+            });
+
+            const nextItem = items.find(menuItem => menuItem.textContent?.trim().startsWith('Edit environment'))
+                || items.find(menuItem => menuItem.textContent?.trim().startsWith('Archive'));
+            if (nextItem?.parentNode) {
+                nextItem.parentNode.insertBefore(item, nextItem);
+            } else {
+                template.parentNode?.insertBefore(item, template.nextSibling);
+            }
+        },
+
+        closeMenu() {
+            document.querySelector('button[aria-label="Session actions"][aria-expanded="true"]')?.click();
+        },
+
+        showToast(message, type = 'info', timeout = 4000) {
+            if (this.toastTimer) clearTimeout(this.toastTimer);
+            let toast = document.getElementById('cpm-code-export-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'cpm-code-export-toast';
+                toast.setAttribute('role', 'status');
+                document.body.appendChild(toast);
+            }
+            toast.className = type === 'error' ? 'is-error' : type === 'success' ? 'is-success' : '';
+            toast.textContent = message;
+            requestAnimationFrame(() => toast.classList.add('visible'));
+            if (timeout > 0) {
+                this.toastTimer = setTimeout(() => {
+                    toast.classList.remove('visible');
+                    setTimeout(() => toast.remove(), 200);
+                }, timeout);
+            }
+        },
+
+        async exportSession(sessionId) {
+            this.isExporting = true;
+            this.closeMenu();
+            this.showToast(t('codeExport.exporting'), 'info', 0);
+            try {
+                const result = await ManagerService.performCodeSessionExport(
+                    sessionId,
+                    this.showToast.bind(this)
+                );
+                if (result.cancelled) {
+                    this.showToast(t('export.userCancelled'), 'info', 3000);
+                } else if (result.attachments.failed > 0) {
+                    this.showToast(t('codeExport.partial').replace('{0}', result.attachments.failed), 'error', 6000);
+                } else {
+                    this.showToast(t('codeExport.complete'), 'success');
+                }
+            } catch (error) {
+                console.error(LOG_PREFIX, 'Claude Code 会话导出失败:', error);
+                this.showToast(`${t('codeExport.failed')}: ${error.message}`, 'error', 6000);
+            } finally {
+                this.isExporting = false;
+            }
+        }
+    };
+
 
     // =========================================================================
-    // 9. 核心拦截与启动模块
+    // 10. 核心拦截与启动模块
     // =========================================================================
     const App = {
         lastUrl: '',
@@ -4019,6 +4486,7 @@
         },
         onPageChange() {
             const currentUrl = location.href;
+            CodeSessionExportEnhancer.sync();
 
             // 检测对话切换
             ClaudeAPI.checkConversationChange();
@@ -4102,6 +4570,18 @@
         #cpm-manager-button { position: fixed; bottom: 18px; right: 18px; z-index: 9998; background-color: hsl(var(--cpm-brand-orange-base)); color: hsl(var(--cpm-oncolor-100)); border: none; border-radius: 8px; padding: 4px 8px; font-size: 16px; font-weight: 600; font-family: sans-serif; cursor: pointer; letter-spacing: 0.2px; box-shadow: 0 4px 12px hsla(var(--cpm-text-000), 0.15); transition: all 0.2s ease-in-out; }
         #cpm-manager-button:hover { box-shadow: 0 8px 20px hsla(var(--cpm-text-000), 0.2); transform: scale(1.05) rotate(-1deg); }
         #cpm-manager-button:active { box-shadow: 0 2px 5px hsla(var(--cpm-text-000), 0.15); transform: scale(0.98); transition-duration: 0.1s; }
+        #cpm-code-export-toast {
+            position: fixed; right: 20px; bottom: 72px; z-index: 2147483647;
+            max-width: min(420px, calc(100vw - 40px)); padding: 10px 14px;
+            color: hsl(var(--cpm-text-100)); background: hsl(var(--cpm-bg-000));
+            border: 1px solid hsl(var(--cpm-border-300)); border-radius: 10px;
+            box-shadow: 0 8px 24px hsla(var(--cpm-always-black), 0.16);
+            font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+            opacity: 0; transform: translateY(8px); transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+        #cpm-code-export-toast.visible { opacity: 1; transform: translateY(0); }
+        #cpm-code-export-toast.is-success { border-color: hsl(var(--cpm-success-000)); }
+        #cpm-code-export-toast.is-error { border-color: hsl(var(--cpm-danger-000)); }
 
         /* --- PANELS & MODALS --- */
         .cpm-panel { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 80vw; max-width: 800px; height: 80vh; background-color: hsl(var(--cpm-bg-100)); color: hsl(var(--cpm-text-200)); border: 1px solid hsl(var(--cpm-border-300)); border-radius: 12px; z-index: 9999; box-shadow: 0 10px 25px hsla(var(--cpm-text-000), 0.2); flex-direction: column; font-family: sans-serif; transition: background-color 0.3s, color 0.3s; }

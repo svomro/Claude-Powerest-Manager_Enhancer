@@ -1,0 +1,1301 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Claude Code 会话浏览器</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+            --bg: #fafaf7;
+            --panel: #ffffff;
+            --panel-soft: #f3f1eb;
+            --text: #24231f;
+            --muted: #6f6b62;
+            --border: #dedbd2;
+            --accent: #c35f36;
+            --user: #2f6d91;
+            --assistant: #8a4e32;
+            --thinking: #6e5da8;
+            --tool: #39735c;
+            --synthetic: #755b9f;
+            --error: #ad3f3f;
+            --shadow: 0 10px 30px rgba(41, 37, 31, 0.06);
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        button, input { font: inherit; }
+        button { color: inherit; }
+        a { color: var(--accent); }
+
+        .page {
+            width: min(1180px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 30px 0 72px;
+        }
+        .hero {
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            padding: 24px;
+        }
+        .eyebrow {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+        h1 {
+            margin: 5px 0 4px;
+            font-size: clamp(24px, 4vw, 38px);
+            line-height: 1.15;
+            letter-spacing: -.025em;
+        }
+        .session-id {
+            color: var(--muted);
+            font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+            overflow-wrap: anywhere;
+        }
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .meta-card {
+            min-width: 0;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--panel-soft);
+            padding: 10px 12px;
+        }
+        .meta-label { color: var(--muted); font-size: 11px; }
+        .meta-value {
+            margin-top: 2px;
+            font-weight: 650;
+            overflow-wrap: anywhere;
+        }
+        .source-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 16px;
+            margin-top: 16px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .redundancy-panel { margin-top: 14px; }
+        .redundancy-copy { padding: 0 12px 10px; color: var(--muted); }
+        .redundancy-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 9px;
+            padding: 0 12px 12px;
+        }
+        .redundancy-item {
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--panel);
+            padding: 9px 10px;
+        }
+        .redundancy-key { color: var(--accent); font: 650 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .redundancy-value { margin-top: 3px; }
+        .redundancy-size { margin-top: 3px; color: var(--muted); font-size: 11px; }
+        .space-title { padding: 3px 12px 7px; color: var(--text); font-weight: 700; }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: grid;
+            gap: 10px;
+            margin: 16px 0;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--bg) 88%, transparent);
+            backdrop-filter: blur(12px);
+        }
+        .toolbar-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+        .tabs { flex: 1 1 auto; }
+        .tab, .action, .type-chip {
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--panel);
+            padding: 7px 11px;
+            cursor: pointer;
+        }
+        .tab[aria-selected="true"], .type-chip[aria-pressed="true"] {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+            color: var(--accent);
+            font-weight: 650;
+        }
+        .action:hover, .tab:hover, .type-chip:hover { border-color: var(--accent); }
+        .search {
+            flex: 1 1 300px;
+            min-width: 180px;
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 8px 11px;
+            outline: none;
+        }
+        .search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+        .result-count { margin-left: auto; color: var(--muted); font-size: 12px; }
+        .type-filter[hidden] { display: none; }
+
+        .notice {
+            margin: 0 0 14px;
+            border-left: 3px solid var(--accent);
+            border-radius: 4px 10px 10px 4px;
+            background: var(--panel-soft);
+            padding: 10px 13px;
+            color: var(--muted);
+        }
+        .view { display: none; }
+        .view.active { display: block; }
+        .event-list { display: grid; gap: 12px; }
+        .official-stream { display: grid; gap: 16px; width: min(820px, 100%); margin: 0 auto; }
+        .official-user-row { display: flex; justify-content: flex-end; }
+        .official-user-bubble {
+            max-width: 75%;
+            border-radius: 16px 16px 4px 16px;
+            background: var(--panel-soft);
+            padding: 10px 13px;
+            box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 60%, transparent);
+        }
+        .official-assistant-turn { display: grid; gap: 9px; padding: 4px 0 15px; }
+        .official-assistant-label { color: var(--assistant); font-size: 12px; font-weight: 750; }
+        .official-lifecycle, .official-status {
+            justify-self: start;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--muted);
+            padding: 4px 0;
+            font-size: 12px;
+            font-weight: 650;
+        }
+        .official-lifecycle::before { content: '↻'; margin-right: 7px; color: var(--accent); }
+        .official-status::before { content: '•'; margin-right: 7px; color: var(--error); }
+        .official-tool {
+            width: fit-content;
+            max-width: 100%;
+            border: 0;
+            background: transparent;
+        }
+        .official-tool > summary {
+            width: fit-content;
+            max-width: 100%;
+            border-radius: 7px;
+            padding: 5px 0;
+            color: var(--tool);
+            font-weight: 650;
+            overflow-wrap: anywhere;
+        }
+        .official-tool[open] > summary { border-bottom: 0; }
+        .official-tool-body {
+            margin-top: 5px;
+            border-left: 2px solid color-mix(in srgb, var(--tool) 35%, var(--border));
+            padding: 5px 0 5px 11px;
+        }
+        .official-thinking {
+            border: 0;
+            background: transparent;
+            color: var(--muted);
+        }
+        .official-thinking > summary { padding: 4px 0; font-size: 12px; font-weight: 620; }
+        .official-thinking[open] > summary { border-bottom: 0; }
+        .official-thinking .thinking-text {
+            margin-top: 6px;
+            border-left: 2px solid color-mix(in srgb, var(--thinking) 35%, var(--border));
+            padding-left: 11px;
+            color: var(--muted);
+        }
+
+        .message-card, .event-shell, .attachment-card, .session-raw {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--panel);
+            box-shadow: 0 3px 16px rgba(41, 37, 31, .035);
+        }
+        .message-card { overflow: hidden; }
+        .message-card.user { border-left: 4px solid var(--user); }
+        .message-card.assistant { border-left: 4px solid var(--assistant); }
+        .message-card.synthetic, .message-card.meta { border-left: 4px solid var(--synthetic); }
+        .message-card.parent-tool { border-left: 4px solid var(--tool); }
+        .message-card.tool-result-user { border-left: 4px solid var(--tool); }
+        .message-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 7px 12px;
+            padding: 11px 14px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel-soft);
+        }
+        .role { font-weight: 750; }
+        .user .role { color: var(--user); }
+        .assistant .role { color: var(--assistant); }
+        .synthetic .role, .meta .role { color: var(--synthetic); }
+        .tool-result-user .role { color: var(--tool); }
+        .event-meta { color: var(--muted); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .message-body { display: grid; gap: 10px; padding: 14px; }
+        .content-text, .thinking-text, .tool-content, .value-pre {
+            margin: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font: inherit;
+        }
+        .thinking-block {
+            border: 1px solid color-mix(in srgb, var(--thinking) 35%, var(--border));
+            border-radius: 11px;
+            background: color-mix(in srgb, var(--thinking) 6%, var(--panel));
+            padding: 11px 12px;
+        }
+        .block-label {
+            margin-bottom: 5px;
+            color: var(--thinking);
+            font-size: 11px;
+            font-weight: 750;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+        details { min-width: 0; }
+        summary { cursor: pointer; }
+        .tool-block, .raw-event, .long-value, .json-node, .extra-field {
+            border: 1px solid var(--border);
+            border-radius: 9px;
+            background: var(--panel-soft);
+        }
+        .tool-block > summary, .raw-event > summary, .long-value > summary, .json-node > summary, .extra-field > summary {
+            padding: 8px 10px;
+            color: var(--muted);
+            font-weight: 620;
+        }
+        .tool-block[open] > summary, .raw-event[open] > summary, .long-value[open] > summary, .json-node[open] > summary, .extra-field[open] > summary {
+            border-bottom: 1px solid var(--border);
+        }
+        .tool-inner, .raw-inner, .json-inner, .long-inner { padding: 10px; }
+        .tool-block { border-color: color-mix(in srgb, var(--tool) 30%, var(--border)); }
+        .tool-block > summary { color: var(--tool); }
+        .tool-block.is-error { border-color: color-mix(in srgb, var(--error) 50%, var(--border)); }
+        .tool-block.is-error > summary { color: var(--error); }
+
+        .event-shell { overflow: hidden; }
+        .event-shell > summary {
+            display: grid;
+            grid-template-columns: auto auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            list-style-position: inside;
+        }
+        .event-shell[open] > summary { border-bottom: 1px solid var(--border); background: var(--panel-soft); }
+        .event-shell-body { padding: 12px; }
+        .event-summary {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--muted);
+        }
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            background: var(--panel-soft);
+            padding: 2px 7px;
+            font: 700 10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .badge.user { color: var(--user); }
+        .badge.assistant { color: var(--assistant); }
+        .badge.synthetic, .badge.meta { color: var(--synthetic); }
+        .badge.tool-result-user { color: var(--tool); }
+        .badge.env_manager_log, .badge.control_request, .badge.control_response { color: var(--muted); }
+        .badge.result { color: var(--tool); }
+        .badge.rate_limit_event { color: var(--error); }
+
+        .image-block { margin: 0; }
+        .image-link { display: inline-block; max-width: min(100%, 720px); }
+        .image-block img, .attachment-card img {
+            display: block;
+            max-width: 100%;
+            max-height: 620px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--panel-soft);
+            object-fit: contain;
+        }
+        figcaption { margin-top: 6px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+        .attachment-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 14px;
+        }
+        .attachment-card { padding: 12px; }
+        .attachment-card a { display: block; text-decoration: none; }
+        .attachment-card img { width: 100%; height: 260px; }
+        .attachment-name { margin-top: 9px; color: var(--text); font-weight: 650; overflow-wrap: anywhere; }
+        .attachment-meta { color: var(--muted); font-size: 11px; }
+
+        .json-row {
+            display: grid;
+            grid-template-columns: minmax(90px, 180px) minmax(0, 1fr);
+            gap: 8px;
+            padding: 5px 0;
+            border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+        }
+        .json-row:last-child { border-bottom: 0; }
+        .json-key { color: var(--accent); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .json-value { min-width: 0; }
+        .json-primitive { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .json-null { color: var(--muted); font-style: italic; }
+        .classification-note {
+            border: 1px solid color-mix(in srgb, var(--synthetic) 35%, var(--border));
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--synthetic) 7%, var(--panel));
+            padding: 10px 12px;
+        }
+        .classification-title { color: var(--synthetic); font-weight: 750; }
+        .classification-fields { margin-top: 5px; color: var(--muted); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .long-inner .json-primitive { max-height: 65vh; overflow: auto; }
+        .empty {
+            border: 1px dashed var(--border);
+            border-radius: 12px;
+            padding: 28px;
+            color: var(--muted);
+            text-align: center;
+        }
+        .footer { margin-top: 22px; color: var(--muted); text-align: center; font-size: 11px; }
+
+        @media (max-width: 680px) {
+            .page { width: min(100% - 18px, 1180px); padding-top: 10px; }
+            .hero { padding: 17px; border-radius: 13px; }
+            .toolbar { top: 0; border-radius: 11px; }
+            .event-shell > summary { grid-template-columns: auto auto minmax(0, 1fr); }
+            .event-shell > summary time { display: none; }
+            .json-row { grid-template-columns: 1fr; gap: 2px; }
+            .attachment-card img { height: auto; max-height: 420px; }
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #1c1b19;
+                --panel: #242320;
+                --panel-soft: #2d2b27;
+                --text: #efede7;
+                --muted: #aaa59b;
+                --border: #45423b;
+                --accent: #e18b65;
+                --user: #86b9d9;
+                --assistant: #dda081;
+                --thinking: #b6a8e8;
+                --tool: #8ec5ad;
+                --synthetic: #c0a8ea;
+                --error: #ef8d8d;
+                --shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <header class="hero">
+            <div class="eyebrow">Claude Code export</div>
+            <h1 id="session-title">会话</h1>
+            <div id="session-id" class="session-id"></div>
+            <div id="meta-grid" class="meta-grid"></div>
+            <div class="source-row">
+                <a id="source-link" href="__SOURCE_FILE_NAME__">打开原始 JSON</a>
+                <span>页面没有删除或截断导出数据；机器事件与超长字段默认折叠。</span>
+            </div>
+            <details id="session-raw" class="session-raw raw-event" style="margin-top: 14px">
+                <summary>完整会话元数据</summary>
+                <div class="raw-inner"></div>
+            </details>
+            <details id="redundancy-summary" class="session-raw raw-event redundancy-panel">
+                <summary>公共冗余字段与空间占用说明</summary>
+                <p class="redundancy-copy"><code>DEVICE_ATTESTATION_STATUS_UNSPECIFIED</code> 表示事件没有指定设备证明状态，不等于证明失败。下列四项已被移出逐条“整理后的事件”，但仍完整保留在“原始事件”里。</p>
+                <div id="redundancy-grid" class="redundancy-grid"></div>
+                <div class="space-title">真正占空间的大项（不确定无用，因此只折叠、不删除）</div>
+                <div id="space-grid" class="redundancy-grid"></div>
+            </details>
+        </header>
+
+        <div class="toolbar">
+            <div class="toolbar-row">
+                <div class="tabs" role="tablist" aria-label="浏览模式">
+                    <button class="tab" data-view="official" role="tab" aria-selected="true">官网视图</button>
+                    <button class="tab" data-view="conversation" role="tab" aria-selected="false">消息审计</button>
+                    <button class="tab" data-view="events" role="tab" aria-selected="false">全部事件</button>
+                    <button class="tab" data-view="attachments" role="tab" aria-selected="false">附件</button>
+                </div>
+                <button id="expand-current" class="action" type="button">展开当前列表</button>
+                <button id="collapse-current" class="action" type="button">折叠当前列表</button>
+            </div>
+            <div class="toolbar-row">
+                <input id="search" class="search" type="search" placeholder="搜索完整事件内容…" autocomplete="off">
+                <span id="result-count" class="result-count"></span>
+            </div>
+            <div id="type-filter" class="toolbar-row type-filter" hidden></div>
+        </div>
+
+        <main>
+            <section id="view-official" class="view active">
+                <p class="notice">按 Claude Code 官网规则投影：合并 Claude 分段、归并工具结果；synthetic/meta、环境日志、控制事件和 context usage 不进入正文。被收起的数据仍在“消息审计”和“全部事件”。</p>
+                <div id="official-list" class="official-stream"></div>
+            </section>
+            <section id="view-conversation" class="view">
+                <p class="notice">这里展示真人消息、Claude、thinking、工具结果和 synthetic/meta context；系统注入不会再标成 You，长正文默认折叠。其他系统与控制事件保留在“全部事件”。</p>
+                <div id="conversation-list" class="event-list"></div>
+            </section>
+            <section id="view-events" class="view">
+                <p class="notice">共收录全部原始事件。用户与 Claude 消息默认展开；环境日志、控制请求/响应、系统事件等默认折叠。</p>
+                <div id="event-list" class="event-list"></div>
+            </section>
+            <section id="view-attachments" class="view">
+                <p class="notice">附件按原导出文件展示；点击图片可打开原文件。对应事件编号和消息 UUID 写在图片下方。</p>
+                <div id="attachment-list" class="attachment-grid"></div>
+            </section>
+        </main>
+
+        <div class="footer">本地单页浏览器 · 不请求任何外部资源</div>
+    </div>
+
+    <script id="session-data" type="application/json">__SESSION_DATA__</script>
+    <script id="attachment-data" type="application/json">__ATTACHMENT_DATA__</script>
+    <script>
+        (() => {
+            'use strict';
+
+            const exportData = JSON.parse(document.getElementById('session-data').textContent);
+            const attachments = JSON.parse(document.getElementById('attachment-data').textContent);
+            const events = Array.isArray(exportData.events) ? exportData.events : [];
+            const sessionEnvelope = exportData.session && typeof exportData.session === 'object' ? exportData.session : {};
+            const session = sessionEnvelope.response_shape && typeof sessionEnvelope.response_shape === 'object'
+                ? sessionEnvelope.response_shape
+                : sessionEnvelope;
+
+            const state = {
+                view: 'official',
+                query: '',
+                selectedTypes: new Set(),
+                searchCache: new Map()
+            };
+
+            const mechanicalTypes = new Set(['control_request', 'control_response', 'env_manager_log', 'rate_limit_event', 'system', 'result']);
+            const payloadOf = event => event && event.payload && typeof event.payload === 'object' ? event.payload : event;
+            const typeOf = event => payloadOf(event)?.type || event?.event_type || '(unknown)';
+            const eventTypes = Array.from(new Set(events.map(typeOf))).sort();
+            eventTypes.forEach(type => state.selectedTypes.add(type));
+
+            const attachmentByEvent = new Map();
+            attachments.forEach(attachment => {
+                if (attachment.eventNumber == null) return;
+                const key = String(attachment.eventNumber) + ':' + String(attachment.blockNumber || 1);
+                attachmentByEvent.set(key, attachment);
+            });
+
+            const make = (tag, className, text) => {
+                const element = document.createElement(tag);
+                if (className) element.className = className;
+                if (text !== undefined) element.textContent = String(text);
+                return element;
+            };
+
+            const formatBytes = bytes => {
+                if (!Number.isFinite(bytes)) return '—';
+                if (bytes < 1024) return bytes + ' B';
+                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+            };
+
+            const characterLength = value => {
+                if (typeof value !== 'string') return 0;
+                let count = 0;
+                for (const unused of value) count += 1;
+                return count;
+            };
+
+            const formatTime = value => {
+                if (!value) return '—';
+                const date = new Date(value);
+                return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false });
+            };
+
+            const isObject = value => value !== null && typeof value === 'object';
+            const byteLength = value => new TextEncoder().encode(JSON.stringify(value)).length;
+            const sumFieldBytes = key => events.reduce((sum, event) => sum + (Object.prototype.hasOwnProperty.call(event, key) ? byteLength({ [key]: event[key] }) : 0), 0);
+            const keyLabel = key => key === undefined || key === null || key === '' ? '(value)' : String(key);
+            const isLongOrOpaque = (value, key) => {
+                const label = String(key || '').toLowerCase();
+                return value.length > 600 || ['signature', 'data', 'stdout', 'stderr', 'output'].includes(label) || /^data:[^;]+;base64,/i.test(value);
+            };
+
+            const attachLazy = (details, build) => {
+                let built = false;
+                const ensure = () => {
+                    if (built) return;
+                    built = true;
+                    build();
+                };
+                details.addEventListener('toggle', () => {
+                    if (details.open) ensure();
+                });
+                if (details.open) ensure();
+            };
+
+            const renderPrimitive = (value, key) => {
+                const row = make('div', 'json-row');
+                row.appendChild(make('div', 'json-key', keyLabel(key)));
+                const holder = make('div', 'json-value');
+
+                if (typeof value === 'string' && isLongOrOpaque(value, key)) {
+                    const details = make('details', 'long-value');
+                    details.appendChild(make('summary', '', '完整字符串 · ' + characterLength(value).toLocaleString() + ' 字符'));
+                    const inner = make('div', 'long-inner');
+                    details.appendChild(inner);
+                    attachLazy(details, () => inner.appendChild(make('pre', 'json-primitive', value)));
+                    holder.appendChild(details);
+                } else {
+                    const text = value === null ? 'null' : typeof value === 'string' ? value : JSON.stringify(value);
+                    holder.appendChild(make('pre', 'json-primitive' + (value === null ? ' json-null' : ''), text));
+                }
+                row.appendChild(holder);
+                return row;
+            };
+
+            const renderValue = (value, key, depth = 0) => {
+                if (!isObject(value)) return renderPrimitive(value, key);
+
+                const isArray = Array.isArray(value);
+                const keys = isArray ? value.map((_, index) => index) : Object.keys(value);
+                const details = make('details', 'json-node');
+                details.open = depth === 0;
+                const kind = isArray ? 'Array' : 'Object';
+                details.appendChild(make('summary', '', keyLabel(key) + ' · ' + kind + ' (' + keys.length + ')'));
+                const inner = make('div', 'json-inner');
+                details.appendChild(inner);
+                attachLazy(details, () => {
+                    if (keys.length === 0) {
+                        inner.appendChild(make('div', 'json-null', isArray ? '[]' : '{}'));
+                        return;
+                    }
+                    keys.forEach(childKey => inner.appendChild(renderValue(value[childKey], childKey, depth + 1)));
+                });
+                return details;
+            };
+
+            const rawDetails = (label, value, className = '') => {
+                const details = make('details', 'raw-event ' + className);
+                details.appendChild(make('summary', '', label));
+                const inner = make('div', 'raw-inner');
+                details.appendChild(inner);
+                attachLazy(details, () => inner.appendChild(renderValue(value, 'root', 0)));
+                return details;
+            };
+
+            const organizedEvent = event => {
+                if (!event || typeof event !== 'object') return event;
+                const {
+                    device_attestation_status,
+                    sent_by_account_id,
+                    event_id,
+                    event_type,
+                    ...rest
+                } = event;
+                return rest;
+            };
+
+            const textFromContent = content => {
+                if (typeof content === 'string') return content;
+                if (!Array.isArray(content)) return '';
+                return content.map(block => {
+                    if (!block || typeof block !== 'object') return String(block || '');
+                    if (block.type === 'text') return block.text || '';
+                    if (block.type === 'thinking') return block.thinking || '';
+                    if (block.type === 'tool_use') return block.name || '';
+                    if (block.type === 'tool_result') return typeof block.content === 'string' ? block.content : '';
+                    return '';
+                }).join('\n');
+            };
+
+            const contentCharacterLength = content => {
+                if (typeof content === 'string') return characterLength(content);
+                if (!Array.isArray(content)) return 0;
+                return content.reduce((sum, block) => {
+                    if (!block || typeof block !== 'object') return sum;
+                    if (typeof block.text === 'string') return sum + characterLength(block.text);
+                    if (typeof block.thinking === 'string') return sum + characterLength(block.thinking);
+                    if (typeof block.content === 'string') return sum + characterLength(block.content);
+                    return sum;
+                }, 0);
+            };
+
+            const classifyMessage = event => {
+                const payload = payloadOf(event) || {};
+                if (payload.parent_tool_use_id) {
+                    return { kind: 'parent-tool', label: 'Nested tool message', databaseKind: 'parent_tool_message', humanInput: false };
+                }
+                if (payload.type === 'assistant') {
+                    return { kind: 'assistant', label: 'Claude', humanInput: false };
+                }
+
+                const content = payload.message?.content;
+                const text = textFromContent(content);
+                if (payload.isSynthetic) {
+                    const directoryMatch = text.match(/^Base directory for this skill:\s*([^\n]+)/);
+                    const directory = directoryMatch?.[1] || '';
+                    const skillName = directory ? directory.split('/').filter(Boolean).at(-1) : '';
+                    return {
+                        kind: 'synthetic',
+                        label: '系统注入 · Synthetic context',
+                        databaseKind: skillName ? 'synthetic_context / skill_injection' : 'synthetic_context',
+                        humanInput: false,
+                        skillName,
+                        contentLength: contentCharacterLength(content)
+                    };
+                }
+                if (payload.isMeta) {
+                    return { kind: 'meta', label: '系统元数据 · Meta context', databaseKind: 'meta_context', humanInput: false, contentLength: contentCharacterLength(content) };
+                }
+                if (payload.type === 'user' && Array.isArray(content) && content.some(block => block?.type === 'tool_result')) {
+                    return { kind: 'tool-result-user', label: 'Tool result', databaseKind: 'tool_result', humanInput: false, contentLength: contentCharacterLength(content) };
+                }
+                return { kind: 'user', label: 'You', databaseKind: 'human_message', humanInput: true, contentLength: contentCharacterLength(content) };
+            };
+
+            const eventSearchText = index => {
+                if (!state.searchCache.has(index)) {
+                    state.searchCache.set(index, JSON.stringify(events[index]).toLocaleLowerCase());
+                }
+                return state.searchCache.get(index);
+            };
+
+            const matchesSearch = index => !state.query || eventSearchText(index).includes(state.query);
+
+            const renderImage = (block, eventIndex, imageNumber) => {
+                const figure = make('figure', 'image-block');
+                const attachment = attachmentByEvent.get(String(eventIndex + 1) + ':' + String(imageNumber));
+                const source = block?.source && typeof block.source === 'object' ? block.source : {};
+                const rawData = source.data || block?.data || '';
+                const mimeType = source.media_type || block?.media_type || block?.mimeType || 'image/png';
+                const imageSource = attachment?.name || (rawData ? (/^data:/i.test(rawData) ? rawData : 'data:' + mimeType + ';base64,' + rawData) : '');
+                const link = make('a', 'image-link');
+                link.href = imageSource || '#';
+                link.target = '_blank';
+                link.rel = 'noreferrer';
+                const image = make('img');
+                image.src = imageSource;
+                image.alt = attachment?.name || '会话图片附件';
+                image.loading = 'lazy';
+                link.appendChild(image);
+                figure.appendChild(link);
+                figure.appendChild(make('figcaption', '', attachment
+                    ? attachment.name + ' · ' + formatBytes(attachment.size)
+                    : '图片内容来自事件内嵌 base64'));
+                figure.appendChild(rawDetails('完整图片块（含 base64）', block));
+                return figure;
+            };
+
+            const renderBlock = (block, eventIndex, imageNumberRef) => {
+                if (!isObject(block)) return make('pre', 'content-text', String(block ?? ''));
+                if (block.type === 'text') return make('pre', 'content-text', block.text || '');
+
+                if (block.type === 'thinking') {
+                    const container = make('section', 'thinking-block');
+                    container.appendChild(make('div', 'block-label', 'Thinking'));
+                    container.appendChild(make('pre', 'thinking-text', block.thinking || ''));
+                    if ('signature' in block) container.appendChild(rawDetails('完整 signature', block.signature, 'extra-field'));
+                    return container;
+                }
+
+                if (block.type === 'tool_use') {
+                    const details = make('details', 'tool-block');
+                    details.appendChild(make('summary', '', 'Tool use · ' + (block.name || '(unnamed)') + (block.id ? ' · ' + block.id : '')));
+                    const inner = make('div', 'tool-inner');
+                    details.appendChild(inner);
+                    attachLazy(details, () => {
+                        if ('input' in block) inner.appendChild(renderValue(block.input, 'input', 0));
+                        const rest = Object.fromEntries(Object.entries(block).filter(([key]) => !['type', 'name', 'id', 'input'].includes(key)));
+                        if (Object.keys(rest).length) inner.appendChild(renderValue(rest, '其他工具字段', 0));
+                    });
+                    return details;
+                }
+
+                if (block.type === 'tool_result') {
+                    const details = make('details', 'tool-block' + (block.is_error ? ' is-error' : ''));
+                    details.appendChild(make('summary', '', (block.is_error ? 'Tool result error' : 'Tool result') + (block.tool_use_id ? ' · ' + block.tool_use_id : '')));
+                    const inner = make('div', 'tool-inner');
+                    details.appendChild(inner);
+                    attachLazy(details, () => inner.appendChild(renderValue(block, '完整工具结果', 0)));
+                    return details;
+                }
+
+                if (block.type === 'image') {
+                    imageNumberRef.value += 1;
+                    return renderImage(block, eventIndex, imageNumberRef.value);
+                }
+
+                return rawDetails('未知内容块 · ' + (block.type || '无 type'), block);
+            };
+
+            const appendMessageContent = (container, payload, eventIndex) => {
+                const content = payload?.message?.content;
+                if (typeof content === 'string') {
+                    container.appendChild(make('pre', 'content-text', content));
+                } else if (Array.isArray(content)) {
+                    const imageNumberRef = { value: 0 };
+                    content.forEach(block => container.appendChild(renderBlock(block, eventIndex, imageNumberRef)));
+                } else if (content !== undefined) {
+                    container.appendChild(rawDetails('message.content', content));
+                }
+
+                if ('tool_use_result' in payload) {
+                    container.appendChild(rawDetails('事件级 tool_use_result', payload.tool_use_result, 'extra-field'));
+                }
+                if ('error' in payload) {
+                    container.appendChild(rawDetails('事件错误字段', payload.error, 'extra-field'));
+                }
+            };
+
+            const appendClassifiedMessageContent = (container, event, eventIndex) => {
+                const payload = payloadOf(event) || {};
+                const classification = classifyMessage(event);
+                if (classification.kind !== 'synthetic' && classification.kind !== 'meta') {
+                    appendMessageContent(container, payload, eventIndex);
+                    return;
+                }
+
+                const note = make('div', 'classification-note');
+                note.appendChild(make('div', 'classification-title', classification.label));
+                const facts = [
+                    '入库分类: ' + classification.databaseKind,
+                    'human_input: false',
+                    'source: ' + (event.source || 'unknown'),
+                    'isSynthetic: ' + String(Boolean(payload.isSynthetic)),
+                    '正文: ' + classification.contentLength.toLocaleString() + ' 字符'
+                ];
+                if (classification.skillName) facts.push('skill: ' + classification.skillName + '（由正文目录推断）');
+                note.appendChild(make('div', 'classification-fields', facts.join(' · ')));
+                container.appendChild(note);
+
+                const details = make('details', 'tool-block synthetic-content');
+                details.appendChild(make('summary', '', '完整系统注入正文 · ' + classification.contentLength.toLocaleString() + ' 字符'));
+                const inner = make('div', 'tool-inner');
+                details.appendChild(inner);
+                attachLazy(details, () => appendMessageContent(inner, payload, eventIndex));
+                container.appendChild(details);
+            };
+
+            const eventTime = event => event?.created_at || payloadOf(event)?.timestamp || event?.received_at || '';
+            const sequence = (event, index) => event?.sequence_num ?? index + 1;
+
+            const toolResultsByUseId = new Map();
+            events.forEach((event, eventIndex) => {
+                const content = payloadOf(event)?.message?.content;
+                if (!Array.isArray(content)) return;
+                content.forEach(block => {
+                    if (block?.type !== 'tool_result' || !block.tool_use_id) return;
+                    if (!toolResultsByUseId.has(block.tool_use_id)) toolResultsByUseId.set(block.tool_use_id, []);
+                    toolResultsByUseId.get(block.tool_use_id).push({ block, event, eventIndex });
+                });
+            });
+
+            const buildOfficialEntries = () => {
+                const entries = [];
+                let assistantTurn = null;
+                let lifecycleCount = 0;
+
+                events.forEach((event, eventIndex) => {
+                    const payload = payloadOf(event) || {};
+                    const type = typeOf(event);
+                    const classification = (type === 'user' || type === 'assistant') ? classifyMessage(event) : null;
+
+                    if (type === 'assistant' && payload.message && classification.kind === 'assistant') {
+                        if (!assistantTurn) {
+                            assistantTurn = { kind: 'assistant', blocks: [], eventIndexes: [] };
+                            entries.push(assistantTurn);
+                        }
+                        assistantTurn.eventIndexes.push(eventIndex);
+                        const content = payload.message.content;
+                        if (typeof content === 'string') {
+                            assistantTurn.blocks.push({ block: { type: 'text', text: content }, eventIndex });
+                        } else if (Array.isArray(content)) {
+                            content.forEach(block => assistantTurn.blocks.push({ block, eventIndex }));
+                        }
+                        return;
+                    }
+
+                    if (type === 'user' && payload.message) {
+                        if (classification.kind === 'user') {
+                            assistantTurn = null;
+                            entries.push({ kind: 'user', event, eventIndex, eventIndexes: [eventIndex] });
+                        } else if (classification.kind === 'tool-result-user' && assistantTurn) {
+                            assistantTurn.eventIndexes.push(eventIndex);
+                        }
+                        return;
+                    }
+
+                    if (type === 'system' && payload.subtype === 'init') {
+                        assistantTurn = null;
+                        lifecycleCount += 1;
+                        const lifecycle = {
+                            kind: 'lifecycle',
+                            label: lifecycleCount === 1 ? 'Initialized session' : 'Resumed session',
+                            eventIndexes: [eventIndex]
+                        };
+                        const lastEntry = entries.at(-1);
+                        if (lastEntry?.kind === 'user') entries.splice(entries.length - 1, 0, lifecycle);
+                        else entries.push(lifecycle);
+                        return;
+                    }
+
+                    if (type === 'rate_limit_event' && payload.rate_limit_info?.status === 'rejected') {
+                        assistantTurn = null;
+                        entries.push({
+                            kind: 'status',
+                            label: 'Server was temporarily limiting requests',
+                            eventIndexes: [eventIndex]
+                        });
+                    }
+                });
+
+                return entries;
+            };
+
+            const officialEntries = buildOfficialEntries();
+
+            const officialToolLabel = block => {
+                const input = isObject(block.input) ? block.input : {};
+                if (block.name === 'Skill') return 'Ran skill /' + (input.skill || 'unknown');
+                if (block.name === 'ToolSearch') return 'Used ToolSearch';
+                if (block.name === 'WebFetch') return 'Fetched ' + (input.url || 'web page');
+                if (block.name === 'Read') return 'Read ' + (input.file_path || input.path || 'file');
+                if (block.name === 'Bash') {
+                    const command = typeof input.command === 'string' ? input.command.split('\n')[0].trim() : '';
+                    return input.description || (command ? 'Ran ' + command : 'Ran command');
+                }
+                return 'Used ' + (block.name || 'tool');
+            };
+
+            const renderOfficialTool = block => {
+                const details = make('details', 'official-tool');
+                details.appendChild(make('summary', '', officialToolLabel(block)));
+                const body = make('div', 'official-tool-body');
+                details.appendChild(body);
+                attachLazy(details, () => {
+                    if ('input' in block) body.appendChild(renderValue(block.input, 'input', 0));
+                    const results = block.id ? toolResultsByUseId.get(block.id) || [] : [];
+                    if (!results.length) {
+                        body.appendChild(make('div', 'event-meta', '没有找到对应的 tool_result。'));
+                    } else {
+                        results.forEach((result, index) => {
+                            body.appendChild(renderValue(result.block, results.length > 1 ? 'tool_result ' + (index + 1) : 'tool_result', 0));
+                        });
+                    }
+                    body.appendChild(rawDetails('完整工具调用块', block));
+                });
+                return details;
+            };
+
+            const renderOfficialThinking = block => {
+                const thinking = block.thinking || '';
+                const details = make('details', 'official-thinking');
+                details.appendChild(make('summary', '', 'Thinking · ' + characterLength(thinking).toLocaleString() + ' 字符'));
+                const body = make('div');
+                details.appendChild(body);
+                attachLazy(details, () => {
+                    body.appendChild(make('pre', 'thinking-text', thinking));
+                    if ('signature' in block) body.appendChild(rawDetails('完整 signature', block.signature, 'extra-field'));
+                });
+                return details;
+            };
+
+            const renderOfficialBlock = (block, eventIndex, imageNumberRef) => {
+                if (!isObject(block)) return make('pre', 'content-text', String(block ?? ''));
+                if (block.type === 'text') return make('pre', 'content-text', block.text || '');
+                if (block.type === 'thinking') return renderOfficialThinking(block);
+                if (block.type === 'tool_use') return renderOfficialTool(block);
+                if (block.type === 'image') {
+                    imageNumberRef.value += 1;
+                    return renderImage(block, eventIndex, imageNumberRef.value);
+                }
+                return rawDetails('官网未展示的内容块 · ' + (block.type || '无 type'), block);
+            };
+
+            const renderOfficialUser = entry => {
+                const row = make('article', 'official-user-row');
+                row.setAttribute('aria-label', 'You said');
+                const bubble = make('div', 'official-user-bubble');
+                const content = payloadOf(entry.event)?.message?.content;
+                if (typeof content === 'string') {
+                    bubble.appendChild(make('pre', 'content-text', content));
+                } else if (Array.isArray(content)) {
+                    const imageNumberRef = { value: 0 };
+                    content.forEach(block => {
+                        if (block?.type === 'text') bubble.appendChild(make('pre', 'content-text', block.text || ''));
+                        else if (block?.type === 'image') {
+                            imageNumberRef.value += 1;
+                            bubble.appendChild(renderImage(block, entry.eventIndex, imageNumberRef.value));
+                        } else bubble.appendChild(rawDetails('官网未展示的用户内容块', block));
+                    });
+                }
+                row.appendChild(bubble);
+                return row;
+            };
+
+            const renderOfficialAssistant = entry => {
+                const article = make('article', 'official-assistant-turn');
+                article.setAttribute('aria-label', 'Claude said');
+                article.appendChild(make('div', 'official-assistant-label', 'Claude'));
+                const imageNumbers = new Map();
+                entry.blocks.forEach(({ block, eventIndex }) => {
+                    if (!imageNumbers.has(eventIndex)) imageNumbers.set(eventIndex, { value: 0 });
+                    article.appendChild(renderOfficialBlock(block, eventIndex, imageNumbers.get(eventIndex)));
+                });
+                return article;
+            };
+
+            const renderOfficial = () => {
+                const list = document.getElementById('official-list');
+                list.replaceChildren();
+                const fragment = document.createDocumentFragment();
+                let visible = 0;
+                officialEntries.forEach(entry => {
+                    if (state.query && !entry.eventIndexes.some(matchesSearch)) return;
+                    if (entry.kind === 'user') fragment.appendChild(renderOfficialUser(entry));
+                    else if (entry.kind === 'assistant') fragment.appendChild(renderOfficialAssistant(entry));
+                    else fragment.appendChild(make('div', entry.kind === 'status' ? 'official-status' : 'official-lifecycle', entry.label));
+                    visible += 1;
+                });
+                if (!visible) fragment.appendChild(make('div', 'empty', '官网视图里没有匹配的内容；系统注入请到“消息审计”搜索。'));
+                list.appendChild(fragment);
+                document.getElementById('result-count').textContent = visible + ' / ' + officialEntries.length + ' 条官网记录';
+            };
+
+            const renderMessage = (event, index) => {
+                const payload = payloadOf(event) || {};
+                const classification = classifyMessage(event);
+                const card = make('article', 'message-card ' + classification.kind);
+                const head = make('header', 'message-head');
+                head.appendChild(make('span', 'role', classification.label));
+                if (classification.databaseKind) head.appendChild(make('span', 'badge ' + classification.kind, classification.databaseKind));
+                head.appendChild(make('span', 'event-meta', 'event ' + sequence(event, index)));
+                if (payload.uuid) head.appendChild(make('span', 'event-meta', payload.uuid));
+                head.appendChild(make('time', 'event-meta', formatTime(eventTime(event))));
+                card.appendChild(head);
+                const body = make('div', 'message-body');
+                appendClassifiedMessageContent(body, event, index);
+                body.appendChild(rawDetails('完整原始事件（含公共冗余字段）', event));
+                card.appendChild(body);
+                return card;
+            };
+
+            const summarizeEvent = (event, index) => {
+                const payload = payloadOf(event) || {};
+                const type = typeOf(event);
+                if (type === 'user' || type === 'assistant') {
+                    const classification = classifyMessage(event);
+                    if (classification.kind === 'synthetic') {
+                        return (classification.skillName ? 'Skill ' + classification.skillName + ' · ' : '') + classification.contentLength.toLocaleString() + ' 字符系统注入正文';
+                    }
+                    if (classification.kind === 'meta') return classification.contentLength.toLocaleString() + ' 字符 meta context';
+                    if (classification.kind === 'tool-result-user') return '工具执行结果';
+                    const text = textFromContent(payload.message?.content).replace(/\s+/g, ' ').trim();
+                    return text.length > 240 ? text.slice(0, 240) + '…' : text || payload.message?.role || 'message';
+                }
+                if (type === 'env_manager_log') {
+                    const logText = typeof payload.data === 'string' ? payload.data : payload.data?.content;
+                    return String(logText || '').split('\n')[0] || 'environment manager log';
+                }
+                if (type === 'control_request') return payload.request?.subtype || payload.request_id || 'control request';
+                if (type === 'control_response') return payload.response?.subtype || payload.request_id || 'control response';
+                if (type === 'system') return payload.subtype || payload.hook_event || 'system';
+                if (type === 'result') return payload.subtype || payload.stop_reason || 'result';
+                if (type === 'rate_limit_event') return payload.rate_limit_info?.status || 'rate limit';
+                return payload.subtype || event?.event_type || 'event ' + (index + 1);
+            };
+
+            const renderAllEvent = (event, index) => {
+                const type = typeOf(event);
+                const classification = (type === 'user' || type === 'assistant') ? classifyMessage(event) : null;
+                const details = make('details', 'event-shell');
+                details.open = !mechanicalTypes.has(type) && classification?.kind !== 'synthetic' && classification?.kind !== 'meta';
+                const summary = make('summary');
+                const badgeKind = classification?.kind || type;
+                const badgeLabel = classification && classification.kind !== 'user' && classification.kind !== 'assistant' ? badgeKind : type;
+                summary.appendChild(make('span', 'badge ' + badgeKind, badgeLabel));
+                summary.appendChild(make('span', 'event-meta', '#' + sequence(event, index)));
+                summary.appendChild(make('span', 'event-summary', summarizeEvent(event, index)));
+                summary.appendChild(make('time', 'event-meta', formatTime(eventTime(event))));
+                details.appendChild(summary);
+                const body = make('div', 'event-shell-body');
+                details.appendChild(body);
+                attachLazy(details, () => {
+                    const payload = payloadOf(event) || {};
+                    if (type === 'user' || type === 'assistant') {
+                        const messageBody = make('div', 'message-body');
+                        appendClassifiedMessageContent(messageBody, event, index);
+                        body.appendChild(messageBody);
+                    } else {
+                        body.appendChild(make('div', 'event-meta', '此类事件默认折叠；下方保留完整原始内容。'));
+                    }
+                    const organized = rawDetails('整理后的事件（四项公共冗余已移出）', organizedEvent(event), 'organized-event');
+                    organized.open = true;
+                    body.appendChild(organized);
+                    body.appendChild(rawDetails('完整原始事件（含公共冗余字段）', event));
+                });
+                return details;
+            };
+
+            const renderConversation = () => {
+                const list = document.getElementById('conversation-list');
+                list.replaceChildren();
+                const fragment = document.createDocumentFragment();
+                let visible = 0;
+                events.forEach((event, index) => {
+                    const payload = payloadOf(event);
+                    if (!payload?.message || !['user', 'assistant'].includes(payload.type) || !matchesSearch(index)) return;
+                    fragment.appendChild(renderMessage(event, index));
+                    visible += 1;
+                });
+                if (!visible) fragment.appendChild(make('div', 'empty', '没有匹配的对话消息。'));
+                list.appendChild(fragment);
+                document.getElementById('result-count').textContent = visible + ' 条对话消息';
+            };
+
+            const renderEvents = () => {
+                const list = document.getElementById('event-list');
+                list.replaceChildren();
+                const fragment = document.createDocumentFragment();
+                let visible = 0;
+                events.forEach((event, index) => {
+                    if (!state.selectedTypes.has(typeOf(event)) || !matchesSearch(index)) return;
+                    fragment.appendChild(renderAllEvent(event, index));
+                    visible += 1;
+                });
+                if (!visible) fragment.appendChild(make('div', 'empty', '没有匹配的事件。'));
+                list.appendChild(fragment);
+                document.getElementById('result-count').textContent = visible + ' / ' + events.length + ' 条事件';
+            };
+
+            const renderAttachments = () => {
+                const list = document.getElementById('attachment-list');
+                list.replaceChildren();
+                const query = state.query;
+                const filtered = attachments.filter(attachment => !query || JSON.stringify(attachment).toLocaleLowerCase().includes(query));
+                if (!filtered.length) {
+                    list.appendChild(make('div', 'empty', '没有匹配的附件。'));
+                } else {
+                    filtered.forEach(attachment => {
+                        const card = make('article', 'attachment-card');
+                        const link = make('a');
+                        link.href = attachment.name;
+                        link.target = '_blank';
+                        link.rel = 'noreferrer';
+                        const image = make('img');
+                        image.src = attachment.name;
+                        image.alt = attachment.name;
+                        image.loading = 'lazy';
+                        link.appendChild(image);
+                        link.appendChild(make('div', 'attachment-name', attachment.name));
+                        card.appendChild(link);
+                        card.appendChild(make('div', 'attachment-meta', formatBytes(attachment.size) + ' · event ' + (attachment.eventNumber ?? '—') + ' · ' + (attachment.messageUuid || '无消息 UUID')));
+                        card.appendChild(rawDetails('完整附件索引信息', attachment));
+                        list.appendChild(card);
+                    });
+                }
+                document.getElementById('result-count').textContent = filtered.length + ' / ' + attachments.length + ' 个附件';
+            };
+
+            const renderCurrent = () => {
+                if (state.view === 'official') renderOfficial();
+                else if (state.view === 'conversation') renderConversation();
+                else if (state.view === 'events') renderEvents();
+                else renderAttachments();
+            };
+
+            const setView = view => {
+                state.view = view;
+                document.querySelectorAll('.tab').forEach(tab => tab.setAttribute('aria-selected', String(tab.dataset.view === view)));
+                document.querySelectorAll('.view').forEach(section => section.classList.toggle('active', section.id === 'view-' + view));
+                document.getElementById('type-filter').hidden = view !== 'events';
+                document.getElementById('expand-current').hidden = view === 'attachments';
+                document.getElementById('collapse-current').hidden = view === 'attachments';
+                renderCurrent();
+            };
+
+            const buildTypeFilters = () => {
+                const holder = document.getElementById('type-filter');
+                eventTypes.forEach(type => {
+                    const count = events.filter(event => typeOf(event) === type).length;
+                    const button = make('button', 'type-chip', type + ' · ' + count);
+                    button.type = 'button';
+                    button.setAttribute('aria-pressed', 'true');
+                    button.addEventListener('click', () => {
+                        if (state.selectedTypes.has(type)) state.selectedTypes.delete(type);
+                        else state.selectedTypes.add(type);
+                        button.setAttribute('aria-pressed', String(state.selectedTypes.has(type)));
+                        renderEvents();
+                    });
+                    holder.appendChild(button);
+                });
+            };
+
+            const addMeta = (label, value) => {
+                const card = make('div', 'meta-card');
+                card.appendChild(make('div', 'meta-label', label));
+                card.appendChild(make('div', 'meta-value', value));
+                document.getElementById('meta-grid').appendChild(card);
+            };
+
+            const addRedundancyItem = (holder, key, value, size) => {
+                const item = make('div', 'redundancy-item');
+                item.appendChild(make('div', 'redundancy-key', key));
+                item.appendChild(make('div', 'redundancy-value', value));
+                item.appendChild(make('div', 'redundancy-size', size));
+                holder.appendChild(item);
+            };
+
+            const initializeRedundancySummary = () => {
+                const redundancyGrid = document.getElementById('redundancy-grid');
+                const total = events.length;
+                const sameAttestation = new Set(events.map(event => event.device_attestation_status)).size === 1;
+                const nullAccountCount = events.filter(event => event.sent_by_account_id === null).length;
+                const duplicateIdCount = events.filter(event => event.event_id === event.payload?.uuid).length;
+                const duplicateTypeCount = events.filter(event => event.event_type === event.payload?.type).length;
+                const redundantBytes = ['device_attestation_status', 'sent_by_account_id', 'event_id', 'event_type'].reduce((sum, key) => sum + sumFieldBytes(key), 0);
+
+                addRedundancyItem(
+                    redundancyGrid,
+                    'device_attestation_status',
+                    sameAttestation ? total + '/' + total + ' 全部相同' : '存在多个值',
+                    formatBytes(sumFieldBytes('device_attestation_status')) + ' · 值为 DEVICE_ATTESTATION_STATUS_UNSPECIFIED'
+                );
+                addRedundancyItem(
+                    redundancyGrid,
+                    'sent_by_account_id',
+                    nullAccountCount + '/' + total + ' 为 null',
+                    formatBytes(sumFieldBytes('sent_by_account_id'))
+                );
+                addRedundancyItem(
+                    redundancyGrid,
+                    'event_id',
+                    duplicateIdCount + '/' + total + ' 与 payload.uuid 相同',
+                    formatBytes(sumFieldBytes('event_id'))
+                );
+                addRedundancyItem(
+                    redundancyGrid,
+                    'event_type',
+                    duplicateTypeCount + '/' + total + ' 与 payload.type 相同',
+                    formatBytes(sumFieldBytes('event_type'))
+                );
+                addRedundancyItem(
+                    redundancyGrid,
+                    '四项合计',
+                    '可由公共值或 payload 无损还原',
+                    formatBytes(redundantBytes) + ' · compact JSON 的 ' + ((redundantBytes / byteLength(exportData)) * 100).toFixed(1) + '%'
+                );
+
+                let signatureCount = 0;
+                let signatureChars = 0;
+                let imageCount = 0;
+                let imageChars = 0;
+                events.forEach(event => {
+                    const content = payloadOf(event)?.message?.content;
+                    if (!Array.isArray(content)) return;
+                    content.forEach(block => {
+                        if (block?.type === 'thinking' && typeof block.signature === 'string') {
+                            signatureCount += 1;
+                            signatureChars += block.signature.length;
+                        }
+                        if (block?.type === 'image') {
+                            const value = block.source?.data || block.data;
+                            if (typeof value === 'string') {
+                                imageCount += 1;
+                                imageChars += value.length;
+                            }
+                        }
+                    });
+                });
+                const contextSnapshots = events.filter(event => {
+                    const response = payloadOf(event)?.response?.response;
+                    return typeOf(event) === 'control_response' && response && Array.isArray(response.gridRows);
+                });
+                const contextSnapshotBytes = contextSnapshots.reduce((sum, event) => sum + byteLength(event), 0);
+                const spaceGrid = document.getElementById('space-grid');
+                addRedundancyItem(spaceGrid, '上下文用量快照', contextSnapshots.length + ' 条 control_response', formatBytes(contextSnapshotBytes) + ' · token/grid/工具清单会随时间变化');
+                addRedundancyItem(spaceGrid, '图片 base64', imageCount + ' 张内嵌图片', imageChars.toLocaleString() + ' 字符 · 图片文件已另存，但原始事件仍保留');
+                addRedundancyItem(spaceGrid, 'thinking signature', signatureCount + ' 个签名', signatureChars.toLocaleString() + ' 字符 · 不可读但属于原始模型数据');
+            };
+
+            const initializeHeader = () => {
+                const title = session.title || session.post_turn_summary?.title || 'Untitled';
+                document.title = title + ' · Claude Code 会话浏览器';
+                document.getElementById('session-title').textContent = title;
+                document.getElementById('session-id').textContent = session.id || '未知 session id';
+                const messageCount = events.filter(event => ['user', 'assistant'].includes(typeOf(event)) && payloadOf(event)?.message).length;
+                const syntheticCount = events.filter(event => payloadOf(event)?.isSynthetic === true).length;
+                const toolResultCount = events.filter(event => classifyMessage(event).kind === 'tool-result-user').length;
+                const thinkingCount = events.reduce((count, event) => {
+                    const content = payloadOf(event)?.message?.content;
+                    return count + (Array.isArray(content) ? content.filter(block => block?.type === 'thinking').length : 0);
+                }, 0);
+                addMeta('全部事件', events.length.toLocaleString());
+                addMeta('对话消息', messageCount.toLocaleString());
+                addMeta('Synthetic context', syntheticCount.toLocaleString());
+                addMeta('Tool result', toolResultCount.toLocaleString());
+                addMeta('Thinking', thinkingCount.toLocaleString());
+                addMeta('附件', attachments.length.toLocaleString());
+                addMeta('模型', session.config?.model || session.external_metadata?.model || '—');
+                addMeta('创建时间', formatTime(session.created_at));
+                addMeta('最后事件', formatTime(session.last_event_at));
+                addMeta('状态', session.status || '—');
+                const sessionRaw = document.getElementById('session-raw');
+                const inner = sessionRaw.querySelector('.raw-inner');
+                attachLazy(sessionRaw, () => inner.appendChild(renderValue(sessionEnvelope, 'session', 0)));
+            };
+
+            let searchTimer;
+            document.getElementById('search').addEventListener('input', event => {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(() => {
+                    state.query = event.target.value.trim().toLocaleLowerCase();
+                    renderCurrent();
+                }, 120);
+            });
+
+            document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => setView(tab.dataset.view)));
+            document.getElementById('expand-current').addEventListener('click', () => {
+                document.querySelectorAll('.view.active details').forEach(details => { details.open = true; });
+            });
+            document.getElementById('collapse-current').addEventListener('click', () => {
+                document.querySelectorAll('.view.active details').forEach(details => { details.open = false; });
+            });
+
+            initializeHeader();
+            initializeRedundancySummary();
+            buildTypeFilters();
+            renderCurrent();
+        })();
+    </script>
+</body>
+</html>
