@@ -2778,10 +2778,23 @@
         keydownHandler: null,
         essentialElementIds: ['cpm-manager-button', 'cpm-main-panel', 'cpm-settings-panel', 'cpm-tree-panel'],
 
+        isCodePage() {
+            return /^\/code(?:\/|$)/.test(location.pathname);
+        },
+
+        syncManagerButtonVisibility() {
+            const managerButton = document.getElementById('cpm-manager-button');
+            if (!managerButton) return;
+            managerButton.style.display = this.isManagerButtonVisible && !this.isCodePage() ? 'block' : 'none';
+        },
+
         init() {
             const uiIntact = this.hasEssentialElements();
 
-            if (this.isInitialized && uiIntact) return;
+            if (this.isInitialized && uiIntact) {
+                this.syncManagerButtonVisibility();
+                return;
+            }
 
             if (this.isInitialized && !uiIntact) {
                 console.warn(LOG_PREFIX, "检测到管理器UI节点缺失，准备重新挂载。");
@@ -2872,7 +2885,7 @@
             managerButton.id = 'cpm-manager-button';
             managerButton.innerHTML = t('manager.title');
             managerButton.title = t('tooltip.managerButton');
-            managerButton.style.display = this.isManagerButtonVisible ? 'block' : 'none';
+            managerButton.style.display = this.isManagerButtonVisible && !this.isCodePage() ? 'block' : 'none';
             document.body.appendChild(managerButton);
 
             const mainPanel = document.createElement('div');
@@ -3605,8 +3618,8 @@
                 this.init();
                 return;
             }
-            managerButton.style.display = this.isManagerButtonVisible ? 'block' : 'none';
-            console.log(LOG_PREFIX, `Manager按钮已${this.isManagerButtonVisible ? '显示' : '隐藏'} (Ctrl+M)`);
+            this.syncManagerButtonVisibility();
+            console.log(LOG_PREFIX, `Manager按钮显示偏好已切换为${this.isManagerButtonVisible ? '显示' : '隐藏'} (Ctrl+M)`);
         }
     };
 
