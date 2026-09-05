@@ -1,137 +1,43 @@
-# Claude Powerest Manager & Enhancer
+# Claude Powerest Manager & Enhancer (personal fork)
 
-[![Version](https://img.shields.io/badge/Version-1.2.6-blue.svg)](https://greasyfork.org/en/scripts/539886-claudepowerestmanager-enhancer)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.2.6-blue.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer)
+[![Fork of](https://img.shields.io/badge/Fork_of-f14XuanLv-lightgrey.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Tampermonkey-yellow.svg)](https://www.tampermonkey.net/)
-[![Supported Site](https://img.shields.io/badge/Site-Claude.ai-orange.svg)](https://claude.ai)
-[![Author](https://img.shields.io/badge/Author-f14xuanlv-purple.svg)](https://github.com/f14XuanLv)
+[![Site](https://img.shields.io/badge/Site-Claude.ai-orange.svg)](https://claude.ai)
 
+[**阅读中文版文档**](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/README_zh.md)
 
-[**阅读中文文档**](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/README_zh.md)
-
-This is an extremely powerful Tampermonkey script designed to enhance your Claude experience in every way. It integrates two core modules: a comprehensive **Conversation Manager** and a real-time **Chat Enhancer**, giving you unprecedented control and convenience.
-
-| Main Interface Preview |
-|-----------|
-| ![Main Interface Preview](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/main-preview.gif) |
+> **This repository is a fork of [f14XuanLv/Claude-Powerest-Manager_Enhancer](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer), originally written by [@f14XuanLv](https://github.com/f14XuanLv).**
+>
+> The conversation manager, chat enhancer, bulk rename and export, branching from any node, cross-branch navigation, forced PDF deep analysis, linear navigation panel — **everything the upstream project already provides (as of v1.2.5) is documented in the [upstream README](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/README.md)**, complete with demo recordings.
+>
+> This document only covers what this fork adds on top of v1.2.5.
 
 ---
 
-| Manager Panel (Auto-Rename) |
-|-----------|
-| ![Manager Panel](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/auto-rename.gif) |
-| Continue from Any Branch Node Demo |
-| ![Continue from Any Branch Node](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/continue-from-any-branch-node.gif) |
-| Cross-Branch Navigation to Any Node Demo |
-| ![Cross-Branch Navigation to Any Node](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/branch-navigator.gif) |
-| Force PDF Deep Analysis |
-| ![Force PDF Deep Analysis](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/force-pdf-analysis.gif) |
-| Linear Navigation Panel |
-| ![Linear Navigation Panel](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/linear-navigator.gif) |
-| Theme Switch |
-| ![Theme Switch](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/theme-switch.gif) |
+## ✨ What this fork adds
 
----
-
-## 📺 Demo Videos
-
-### BiliBili Demo Video
-[![Claude Powerest Manager & Enhancer Demo](https://i0.hdslb.com/bfs/archive/100ade411248453a4ed394a3faaf214d89c9e8e9.jpg)](https://www.bilibili.com/video/BV12RaczjEth)
-
-### YouTube Demo Video
-[![Claude Powerest Manager & Enhancer Demo](https://img.youtube.com/vi/lW2sbsHDyJM/maxresdefault.jpg)](https://youtu.be/lW2sbsHDyJM)
-
----
-
-## ✨ Core Features
-
-The script is divided into three main functional areas: **Conversation Manager**, **Chat Enhancer**, and **Claude Code Session Export**.
-
-### 1. Conversation Manager
-
-Opened by clicking the **`Manager`** button in the bottom-right corner of the Claude page. This is a powerful, one-stop management center that saves you from the hassle of searching for conversations in the sidebar.
-
--   **🗂️ Global Conversation Management**:
-    -   **One-Click Load**: Easily fetch a list of all your historical conversations.
-    -   **Powerful Search**: Instantly search conversations by title keywords.
-    -   **Smart Sorting**: Supports various sorting methods, including by update time and title name (A-Z, Z-A).
-    -   **Advanced Filtering**: Quickly filter by criteria such as "Favorited," "Not Favorited," and "ASCII-only Titles."
-
--   **⚡ Bulk Operations**:
-    -   **Bulk Delete**: Select multiple conversations and permanently delete them at once.
-    -   **Bulk Favorite/Unfavorite**: Quickly organize your important conversations.
-    -   **Bulk Auto-Rename**: After selecting conversations, the script will automatically call the Claude Title API to generate accurate, high-quality titles based on the initial turns of the conversation (supports custom title language).
-    -   **Bulk Raw JSON Export**: One-click export of complete raw data for multiple conversations, including all metadata and attachment information, suitable for complete backups.
-    -   **Bulk Custom JSON Export**: Use preset custom export configurations to bulk-export streamlined and formatted conversation data, suitable for data analysis and processing.
-
--   **📥 Powerful Export Features**:
-    -   **Raw JSON Export**: Complete backup of all data returned by the official API, including detailed metadata and attachment information for each message.
-    -   **Custom JSON Export**: Provides highly flexible export options, allowing you to finely control the data to be retained, for example:
-        -   Whether to include session metadata (title, summary, timestamps, etc.).
-        -   Whether to include message UUIDs, timestamps, stop reasons, etc.
-        -   Whether to retain "thinking" processes, tool usage records (web search, code execution, etc.).
-        -   The level of attachment information to retain (full info, metadata only, none).
-    -   **Download Attachments Alongside**: When performing a raw export or choosing to retain attachments in a custom export, the script will automatically download all attachments (PDF, TXT, CSV, etc.) from the conversation into the same folder, intelligently named according to their source and UUID for easy organization.
-
--   **🌳 Single Conversation Operations**:
-    -   **Manual Rename**: Directly edit the title of any conversation within the manager.
-    -   **Conversation Tree Preview**: Clearly displays all branches of a conversation in a tree structure, including branches created by each "Retry," helping you understand the full context of the conversation. Supports automatic detection and flagging of "dirty data" (user message nodes that did not receive a reply from Claude due to network errors, etc.).
-
-### 2. Chat Enhancer
-
-This module injects new function buttons directly into the chat input toolbar in Claude, enhancing your chat experience in real-time.
-
--   **🌿 Smart Branch Continuer & Navigator**:
-    -   Click the new <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-tree.svg" alt="Tree Icon" width="16" height="16" style="display: inline-block; vertical-align: middle;"> icon button in the toolbar to open the powerful conversation tree management panel.
-    -   **Dual-Mode Operation**:
-        - **Continue Mode**: Select any historical Claude reply as a new branch point. Your next message will continue from that node, perfectly "reviving" the conversation from any historical point.
-        - **Navigate Mode**: Quickly jump to any historical node in a complex, multi-branched conversation.
-    -   **Core Features**:
-        - Visualizes the conversation tree structure, clearly showing all branches and node relationships.
-        - Supports recursive search of the entire conversation tree to quickly locate target content.
-        - An intelligent indexing system and branch-switching algorithm ensure precise navigation in complex branches.
-
--   **🚀 Force PDF Deep Analysis**:
-    -   Click the new <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-attachment-power.svg" alt="Attachment Power Icon" width="16" height="16" style="display: inline-block; vertical-align: middle;"> icon button in the toolbar to enable this mode.
-    -   **Main Purpose**: For regular (free) accounts, this feature forces Claude to use a more powerful document processing path for PDF files, achieving deep analysis and content extraction effects similar to Pro/Team accounts.
-    -   **How It Works**: When enabled, your uploaded PDFs are intercepted by the script and processed through a special backend API path. The processed files are temporarily stored in a floating panel and are automatically attached to your message when you send it.
-    -   **Note**: This feature has no effect on Pro/Team accounts, as they already use the optimal processing path by default.
-
--   **🧭 Linear Navigation Panel**:
-    -   Click the new <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-linear-navigator.svg" alt="Linear Navigator Icon" width="16" height="16" style="display: inline-block; vertical-align: middle;"> icon button in the toolbar to open the floating linear navigation panel.
-    -   **Core Functions**:
-        - **Conversation Overview**: Displays all conversation turns in the current branch as a linear list, showing previews of user inputs and Claude's replies.
-        - **Quick Jump**: Click any item in the list to quickly scroll to the corresponding conversation content, with a highlight animation effect.
-        - **Navigation Controls**: Provides quick navigation buttons like Previous/Next, and To Top/To Bottom.
-        - **State Persistence**: The panel's open/closed state is automatically saved and restored on your next visit.
-        - **Draggable**: The panel can be dragged to any position on the screen to suit different user habits.
-    -   **Use Case**: Especially useful for quickly locating and reviewing historical content in long conversations, improving navigation efficiency.
-
-### 3. Claude Code Session Export
+### 1. Claude Code session export (v1.2.6)
 
 On a Claude Code session page (`claude.ai/code/session_...`), open the **Session actions** menu in the top-right corner — an **"Export session"** entry is added to it.
 
--   **📦 Full Export**:
-    -   Fetches session metadata and every event, paginating automatically so session length is not a limit.
-    -   Downloads the session's attachments alongside it, named after their origin and UUID; files that already exist are skipped, so an interrupted export can be resumed.
-    -   Directory layout: `Claude_Exports/[Org]/[ClaudeCode]_[Session Title]_[session_id]/`
-    -   When a session has no title, the first 40 characters of the opening user message are used for the folder name instead — no more piles of indistinguishable `[Untitled]` folders.
+-   Fetches session metadata and every event, paginating automatically so session length is not a limit.
+-   Downloads the session's attachments alongside it, named after their origin and UUID; files that already exist are skipped, so an interrupted export can be resumed.
+-   Directory layout: `Claude_Exports/[Org]/[ClaudeCode]_[Session Title]_[session_id]/`
+-   When a session has no title, the first 40 characters of the opening user message become the folder name instead — no more piles of indistinguishable `[Untitled]` folders.
 
--   **🖥️ Offline Session Browser**:
-    -   `generate-session-browser.command` in the repository root turns an exported JSON into a self-contained HTML page you can read offline.
-    -   Double-click it, then drag the exported session folder into the terminal window and press Enter; passing the path as a command-line argument works too.
-    -   You can drop in the session folder, the `session_*.json` inside it, or a parent directory (it searches downwards, and lists the candidates when there is more than one).
-    -   The generated page has four layers — "site view", "message audit", "all events", and "attachments" — so you can read it like the real site while still being able to verify every raw record.
+### 2. Offline session browser
 
----
+`generate-session-browser.command` turns an exported JSON into a self-contained HTML page you can read offline.
 
-## 📦 Companion Scripts
+-   Double-click it, then drag the exported session folder into the terminal window and press Enter; passing the path as a command-line argument works too.
+-   You can drop in the session folder, the `session_*.json` inside it, or a parent directory (it searches downwards, and lists the candidates when there is more than one). Paths containing spaces, brackets, `&` or CJK characters are handled correctly.
+-   The generated page has four layers — "site view", "message audit", "all events" and "attachments" — so you can read it like the real site while still being able to verify every raw record.
 
-The repository also contains two standalone userscripts. Neither depends on the main script; install them individually as needed.
+### 3. Claude Artifact HTML downloader (standalone script)
 
-### Claude Artifact HTML Downloader (`ClaudeArtifactHTMLDownloader.user.js`)
-
-Injects a "Download HTML" button in the bottom-right of an Artifact page, picking the most faithful way to save it based on the artifact's type:
+`ClaudeArtifactHTMLDownloader.user.js` — injects a "Download HTML" button in the bottom-right of an Artifact page, picking the most faithful way to save it based on the artifact's type:
 
 | Artifact type | How it is saved | Result |
 | --- | --- | --- |
@@ -143,60 +49,49 @@ Injects a "Download HTML" button in the bottom-right of an Artifact page, pickin
 -   Ships mappings for `lucide-react`, `recharts`, `d3`, `lodash`, `papaparse`, `three`, `mathjs` and `tone`; a dependency that cannot be inlined is reported explicitly rather than leaving you with a blank page after download.
 -   Web fonts pulled in by the artifact's own source (Google Fonts, typically) are **not** inlined: CJK families are split into hundreds of unicode-range subsets, and one ordinary artifact measured ~12MB of extra weight. Offline, the font falls back to a system serif; nothing else is affected.
 
-### Model Alias Menu (`ClaudeModelAliasMenu.user.js`)
+### 4. Model alias menu (standalone script, experimental)
 
-An experimental script that appends manually specified model id rows under Claude's "More models" submenu.
+`ClaudeModelAliasMenu.user.js` — appends manually specified model id rows under Claude's "More models" submenu.
+
+### 5. Fixes
+
+-   **Stack overflow on long sessions**: conversation-tree building and export used recursive traversal, which threw `Maximum call stack size exceeded` on very long sessions. Rewritten as iteration over an explicit stack.
+-   **Manager button in the way**: the bottom-right Manager button is no longer rendered on Claude Code session pages or standalone Artifact pages — neither has a conversation list to manage, and it overlapped the Artifact download button.
 
 ---
 
 ## 🛠️ Installation
 
-1.  **Install a Script Manager**: Your browser needs a user script manager first. [Tampermonkey](https://www.tampermonkey.net/) is recommended.
-2.  **Install This Script**: Click the link below to install:
-    -   [Greasy Fork Installation Page](https://greasyfork.org/en/scripts/539886-claudepowerestmanager-enhancer)
+1.  Install [Tampermonkey](https://www.tampermonkey.net/) first.
+2.  This fork is not published on Greasy Fork — install straight from the repository. Opening a raw file link below will prompt Tampermonkey to install it:
+    -   [Main script (includes Claude Code session export)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/raw/main/ClaudePowerestManager%26Enhancer.user.js)
+    -   [Artifact HTML downloader](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/raw/main/ClaudeArtifactHTMLDownloader.user.js)
+    -   [Model alias menu](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/raw/main/ClaudeModelAliasMenu.user.js)
 
----
+> Just want the upstream stable release? Install the original author's version from [Greasy Fork](https://greasyfork.org/en/scripts/539886-claudepowerestmanager-enhancer).
 
-## 📖 Usage
-
--   **Open the Manager**:
-    -   Visit [https://claude.ai](https://claude.ai)
-    -   Find and click the orange **`Manager`** button in the bottom-right corner of the page.
-
--   **Use Enhancer Features**:
-    -   Enter any chat interface.
-    -   In the chat input toolbar at the bottom (next to the attachment upload button), you will see the new icon buttons. Click them to use the corresponding features.
-
--   **Language Switching**:
-    -   Install the script, then on the Claude page click the Manager button in the bottom-right corner.
-    -   In the Manager panel, click the <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-settings.svg" alt="Tree Icon" width="16" height="16" style="display: inline-block; vertical-align: middle;"> button in the top-right corner to open the settings panel.
-    -   In the "语言设置" section, switch the "界面语言", then click "保存设置" at the bottom of the panel.
-    -   Wait for the page to automatically refresh to complete the language switch.
-
--   **Shortcut**:
-    -   **Ctrl+M**: Quickly hide/show the Manager button in the bottom-right corner. Use this when you need a cleaner interface; press it again to restore.
+The three scripts are independent of one another; install whichever you need. The Artifact downloader requires the `GM_xmlhttpRequest` permission, which it uses to fetch the runtimes it inlines.
 
 ---
 
 ## ⚠️ Important Notes
 
--   This script works by interacting with Claude's front-end and private APIs. If the structure of the Claude.ai website or its APIs changes significantly, it may cause some or all of the script's features to break. The author will do their best to maintain it, but please understand the potential risks.
--   "Bulk Delete" is a permanent action and cannot be undone. Please use it with caution.
--   The "Force PDF Deep Analysis" feature is primarily designed for regular accounts to enhance their experience.
+-   These scripts work by interacting with Claude's front-end and private APIs. A significant change to the structure of claude.ai or its APIs can break parts of them.
 -   Exports that include attachments, as well as Claude Code session export, rely on the browser's File System Access API (`showDirectoryPicker`). A Chromium-based browser such as Chrome or Edge is required; Firefox and Safari are not supported yet.
 -   `generate-session-browser.command` requires Node.js to be installed locally.
+-   Saving a JSX artifact inlines Babel, making the file roughly 3.4MB. That is the price of a file that keeps working with no network at all.
 
 ---
 
-## 🤝 Acknowledgments & Related Projects
+## 🤝 Acknowledgments
 
--   **This Project**: [f14XuanLv/Claude-Powerest-Manager_Enhancer](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)
--   **Next Project Preview**: [f14XuanLv/claude-dialog-tree-studio](https://github.com/f14XuanLv/claude-dialog-tree-studio) - An intelligent visual editing and management tool focused on Claude conversation trees. Stay tuned!
+-   **Upstream project**: [f14XuanLv/Claude-Powerest-Manager_Enhancer](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer) — every bit of this fork's baseline functionality comes from there. Thanks to [@f14XuanLv](https://github.com/f14XuanLv).
+-   **Artifact downloader**: adapted from the design and implementation of [Ryan Ouyang / claude-artifact-html-downloader](https://github.com/Ryan-Ouyang/claude-artifact-html-downloader); see [NOTICE](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/NOTICE-ClaudeArtifactHTMLDownloader.md) for the full attribution.
 
-If you find this script helpful, please give it a 🌟 Star on GitHub! If you have any questions or suggestions, please submit them via the [Issues](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/issues) page.
+For issues with upstream functionality, please report them to [upstream Issues](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/issues); for anything this fork added, use [this repository's Issues](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/issues).
 
 ---
 
 ## 📄 License
 
-This project is licensed under the [MIT License](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE).
+Inherits the upstream [MIT License](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE).

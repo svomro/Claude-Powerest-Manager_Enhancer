@@ -1,137 +1,43 @@
-# Claude 神级拓展增强脚本 (Claude Powerest Manager & Enhancer)
+# Claude Powerest Manager & Enhancer（个人 fork）
 
-[![版本](https://img.shields.io/badge/Version-1.2.6-blue.svg)](https://greasyfork.org/zh-CN/scripts/539886-claudepowerestmanager-enhancer)
-[![许可证](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
+[![版本](https://img.shields.io/badge/Version-1.2.6-blue.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer)
+[![Fork 自](https://img.shields.io/badge/Fork_of-f14XuanLv-lightgrey.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)
+[![许可证](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
 [![平台](https://img.shields.io/badge/Platform-Tampermonkey-yellow.svg)](https://www.tampermonkey.net/)
 [![支持的网站](https://img.shields.io/badge/Site-Claude.ai-orange.svg)](https://claude.ai)
-[![支持的网站](https://img.shields.io/badge/Site-fuclaude.com-blue.svg)](https://demo.fuclaude.com)
-[![作者](https://img.shields.io/badge/Author-f14xuanlv-purple.svg)](https://github.com/f14XuanLv)
 
-[**Read this document in English**](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/README.md)
+[**Read this document in English**](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/README.md)
 
-这是一款功能极其强大的 Tampermonkey 脚本，旨在全方位提升您的 Claude 使用体验。它集成了两大核心模块：一个全面的**对话管理器**和一个实时的**聊天增强器**，为您提供前所未有的控制力和便利性。
-
-| 脚本主界面预览 |
-|-----------|
-| ![脚本主界面预览](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/main-preview.gif) |
+> **本仓库 fork 自 [f14XuanLv/Claude-Powerest-Manager_Enhancer](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)，原作者 [@f14XuanLv](https://github.com/f14XuanLv)。**
+>
+> 对话管理器、聊天增强器、批量重命名与导出、从任意分支延续、跨分支导航、强制 PDF 深度解析、线性导航面板——**这些上游已有的功能（截至 v1.2.5）请看 [上游 README](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/README_zh.md)**，那里有完整说明和演示动图。
+>
+> 本文只记录这个 fork 在 v1.2.5 之上新增的部分。
 
 ---
 
-| 管理器面板（自动重命名） |
-|-----------|
-| ![管理器面板](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/auto-rename.gif) |
-| 从任意分支点延续演示 |
-| ![从任意分支点延续](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/continue-from-any-branch-node.gif) |
-| 跨分支导航至任意节点演示 |
-| ![跨分支导航至任意节点](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/branch-navigator.gif) |
-| PDF 强制深度解析 |
-| ![PDF 强制深度解析](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/force-pdf-analysis.gif) |
-| 线性导航面板 |
-| ![线性导航面板](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/linear-navigator.gif) |
-| 主题切换 |
-| ![主题切换](https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/docs/images/theme-switch.gif) |
+## ✨ 本 fork 新增
 
----
-
-## 📺 演示视频
-
-### BiliBili 视频演示
-[![Claude神级拓展增强脚本演示](https://i0.hdslb.com/bfs/archive/100ade411248453a4ed394a3faaf214d89c9e8e9.jpg)](https://www.bilibili.com/video/BV12RaczjEth)
-
-### YouTube 演示视频
-[![Claude Powerest Manager & Enhancer Demo](https://img.youtube.com/vi/lW2sbsHDyJM/maxresdefault.jpg)](https://youtu.be/lW2sbsHDyJM)
-
----
-
-## ✨ 核心功能
-
-脚本主要分为三大功能区：**对话管理器**、**聊天增强器** 和 **Claude Code 会话导出**。
-
-### 1. 对话管理器 (Manager)
-
-通过点击 Claude 页面右下角的 **`Manager`** 按钮打开。这是一个功能强大的一站式管理中心，让您告别在侧边栏中费力寻找对话的烦恼。
-
--   **🗂️ 全局对话管理**:
-    -   **一键加载**: 轻松获取您的所有历史对话列表。
-    -   **强大搜索**: 按标题关键词即时搜索对话。
-    -   **智能排序**: 支持按更新时间、标题名称（A-Z, Z-A）等多种方式排序。
-    -   **高级筛选**: 可根据“已收藏”、“未收藏”、“纯ASCII标题”等条件快速筛选。
-
--   **⚡ 批量操作**:
-    -   **批量删除**: 勾选多个对话，一次性永久删除。
-    -   **批量收藏/取消收藏**: 快速整理您的重要对话。
-    -   **批量自动重命名**: 选中对话后，脚本将自动调用 Claude Title API，根据设置中设定的前几轮对话内容生成精准、高质量的标题（支持自定义标题语言）。
-    -   **批量原始JSON导出**: 一键导出多个对话的完整原始数据，包括所有元数据和附件信息，适合完整备份。
-    -   **批量自定义JSON导出**: 使用预设的自定义导出配置，批量导出经过精简和格式化的对话数据，适合数据分析和处理。
-
--   **📥 强大的导出功能**:
-    -   **原始 JSON 导出**: 完整备份官方返回的所有数据，包括每一条消息的详细元数据和附件信息。
-    -   **自定义 JSON 导出**: 提供极高自由度的导出选项，您可以精细控制要保留的数据，例如：
-        -   是否包含会话元数据（标题、摘要、时间戳等）。
-        -   是否包含消息的 UUID、时间戳、停止原因等。
-        -   是否保留“思考中”的过程、工具使用记录（网页搜索、代码执行等）。
-        -   附件信息的保留级别（完整信息、仅元数据、不保留）。
-    -   **附件一并下载**: 进行原始导出时，或在自定义导出中选择保留附件时，脚本会自动将对话中包含的所有附件（PDF, TXT, CSV 等）下载到同一文件夹，并根据其来源和 UUID 智能命名，方便整理。
-
--   **🌳 单个对话操作**:
-    -   **手动重命名**: 直接在管理器中修改任何对话的标题。
-    -   **对话树预览**: 以树状结构清晰地展示对话的所有分支，包括每一次重试（Retry）产生的分支，方便您理解对话的完整脉络。支持自动检测并标识"脏数据"（因网络错误等原因未收到 Claude 回复的用户消息节点）。
-
-### 2. 聊天增强器 (Enhancer)
-
-此模块直接在 Claude 的聊天输入框工具栏注入新的功能按钮，实时增强您的聊天体验。
-
--   **🌿 智能对话树延续&导航器 (Branch Continuer & Navigator)**:
-    -   点击工具栏新增的 <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-tree.svg" alt="树状图标" width="16" height="16" style="display: inline-block; vertical-align: middle;"> 图标按钮，开启强大的对话树管理面板。
-    -   **双模式操作**:
-        - **延续模式**: 选择历史上任意一条Claude回复作为新分支点，下一条消息将从该节点继续，完美实现从任意历史点"复活"对话。
-        - **导航模式**: 在复杂的多分支对话中快速跳转到任意历史节点。
-    -   **核心特性**: 
-        - 可视化对话树结构，清晰展示所有分支和节点关系
-        - 支持递归搜索整个对话树，快速定位目标内容
-        - 智能索引系统和分支切换算法确保在复杂分支中的精确导航
-
--   **🚀 强制 PDF 深度解析 (Force PDF Deep Analysis)**:
-    -   点击工具栏新增的 <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-attachment-power.svg" alt="附件增强图标" width="16" height="16" style="display: inline-block; vertical-align: middle;"> 图标按钮，可以开启此模式。
-    -   **主要用途**: 对于普通（免费）账户，此功能可以强制 Claude 使用更强大的文档解析路径来处理 PDF 文件，从而获得与 Pro/Team 账户类似的深度解析和内容提取效果。
-    -   **工作原理**: 开启后，您上传的 PDF 会被脚本拦截，并通过一个特殊的后台 API 路径进行处理。处理完成的文件会暂存在一个浮动面板中，当您发送消息时，这些文件会自动附加到您的消息中。
-    -   **注意**: 此功能对 Pro/Team 账户无效，因为它们默认已使用最佳解析路径。
-
--   **🧭 线性对话导航面板 (Linear Navigation Panel)**:
-    -   点击工具栏新增的 <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-linear-navigator.svg" alt="线性导航图标" width="16" height="16" style="display: inline-block; vertical-align: middle;"> 图标按钮，开启浮动的线性导航面板。
-    -   **核心功能**:
-        - **对话概览**: 以线性列表形式展示当前分支的所有对话回合，显示用户输入和Claude回复的预览。
-        - **快速跳转**: 点击列表中任一条目即可快速滚动到对应的对话内容，支持高亮动画效果。
-        - **导航控制**: 提供上一条/下一条、回到顶部/底部等快捷导航按钮。
-        - **状态持久**: 面板的开启/关闭状态会自动保存，下次访问时恢复。
-        - **拖拽移动**: 面板支持拖拽到屏幕任意位置，适应不同的使用习惯。
-    -   **适用场景**: 特别适合处理长对话时快速定位和回顾历史内容，提升对话导航效率。
-
-### 3. Claude Code 会话导出
+### 1. Claude Code 会话导出（v1.2.6）
 
 在 Claude Code 的会话页（`claude.ai/code/session_...`）打开右上角的 **Session actions** 菜单，其中会多出一项 **「导出会话」**。
 
--   **📦 完整导出**:
-    -   抓取会话元数据与全部事件，自动翻页，不受会话长度限制。
-    -   一并下载会话中的附件，按来源与 UUID 智能命名；已存在的文件会跳过，可断点续传。
-    -   目录结构：`Claude_Exports/[组织名]/[ClaudeCode]_[会话标题]_[session_id]/`
-    -   会话没有标题时，自动取首条用户消息的前 40 字作为文件夹名，避免导出一堆无法区分的 `[Untitled]`。
+-   抓取会话元数据与全部事件，自动翻页，不受会话长度限制。
+-   一并下载会话中的附件，按来源与 UUID 智能命名；已存在的文件会跳过，中断后可继续。
+-   目录结构：`Claude_Exports/[组织名]/[ClaudeCode]_[会话标题]_[session_id]/`
+-   会话没有标题时，自动取首条用户消息的前 40 字作为文件夹名，避免导出一堆无法区分的 `[Untitled]`。
 
--   **🖥️ 离线会话浏览器**:
-    -   仓库根目录的 `generate-session-browser.command` 可把导出的 JSON 生成一个可离线浏览的 HTML。
-    -   双击运行后，把导出的会话文件夹拖进终端窗口回车即可；也支持命令行直接传参。
-    -   拖入的可以是会话文件夹、里面的 `session_*.json`，或是上层目录（会自动向下寻找，有多个时列出让你选）。
-    -   生成的页面分「官网视图」「消息审计」「全部事件」「附件」四层：既能像官网一样顺畅阅读，也能逐条复核原始数据。
+### 2. 离线会话浏览器
 
----
+`generate-session-browser.command` 把导出的 JSON 变成一个可离线浏览的 HTML。
 
-## 📦 附加脚本
+-   双击运行后，把导出的会话文件夹拖进终端窗口回车即可；也支持命令行直接传参。
+-   拖入的可以是会话文件夹、里面的 `session_*.json`，或是上层目录（会自动向下寻找，有多个时列出让你选）。路径含空格、方括号、`&` 或中文都能正确处理。
+-   生成的页面分「官网视图」「消息审计」「全部事件」「附件」四层：既能像官网一样顺畅阅读，也能逐条复核原始数据。
 
-仓库内另有两个独立的用户脚本，与主脚本互不依赖，可按需单独安装。
+### 3. Claude Artifact HTML 下载器（独立脚本）
 
-### Claude Artifact HTML 下载器 (`ClaudeArtifactHTMLDownloader.user.js`)
-
-在 Artifact 页面右下角注入「下载 HTML」按钮，按 artifact 类型自动选择最保真的保存方式：
+`ClaudeArtifactHTMLDownloader.user.js`——在 Artifact 页面右下角注入「下载 HTML」按钮，按 artifact 类型自动选择最保真的保存方式：
 
 | Artifact 类型 | 保存方式 | 结果 |
 | --- | --- | --- |
@@ -143,63 +49,49 @@
 -   内置 `lucide-react`、`recharts`、`d3`、`lodash`、`papaparse`、`three`、`mathjs`、`tone` 的映射；遇到无法内联的依赖会明确提示，而不是让你下载完打开一片空白。
 -   artifact 源码自带的网络字体（如 Google Fonts）**不会**内联：中文字体按 unicode-range 切成数百个分片，实测一份常见 artifact 就要多背约 12MB。断网时字体降级到系统衬线体，功能不受影响。
 
-### 模型别名菜单 (`ClaudeModelAliasMenu.user.js`)
+### 4. 模型别名菜单（独立脚本，实验性）
 
-实验性脚本，在 Claude 的 More models 子菜单下追加手动指定的模型 id 行。
+`ClaudeModelAliasMenu.user.js`——在 Claude 的 More models 子菜单下追加手动指定的模型 id 行。
+
+### 5. 修复
+
+-   **长会话爆栈**：对话树构建与导出原本用递归遍历，超长会话会触发 `Maximum call stack size exceeded`，改为显式栈的迭代实现。
+-   **Manager 按钮遮挡**：Claude Code 会话页与 Artifact 独立页不再显示右下角的 Manager 按钮——这些页面没有对话列表可管，且会与 Artifact 下载按钮重叠。
 
 ---
 
 ## 🛠️ 安装
 
-1.  **安装脚本管理器**: 您的浏览器需要先安装一个用户脚本管理器。推荐使用 [Tampermonkey](https://www.tampermonkey.net/)。
-2.  **安装本脚本**: 点击下面的链接进行安装：
-    -   [Greasy Fork 安装页](https://greasyfork.org/zh-CN/scripts/539886-claudepowerestmanager-enhancer)
+1.  先安装 [Tampermonkey](https://www.tampermonkey.net/)。
+2.  本 fork 未发布到 Greasy Fork，请从仓库直接安装——点开下面的原始文件链接，Tampermonkey 会自动提示安装：
+    -   [主脚本（含 Claude Code 会话导出）](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/raw/main/ClaudePowerestManager%26Enhancer.user.js)
+    -   [Artifact HTML 下载器](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/raw/main/ClaudeArtifactHTMLDownloader.user.js)
+    -   [模型别名菜单](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/raw/main/ClaudeModelAliasMenu.user.js)
 
----
+> 只想要上游的稳定版？直接从 [Greasy Fork](https://greasyfork.org/zh-CN/scripts/539886-claudepowerestmanager-enhancer) 安装原作者的版本即可。
 
-## 📖 使用方法
-
--   **打开管理器**:
-    -   访问 [https://claude.ai](https://claude.ai)
-    -   或者访问 [https://demo.fuclaude.com](https://demo.fuclaude.com)
-    -   在页面右下角找到并点击橙色的 **`Manager`** 按钮。
-
--   **使用增强功能**:
-    -   进入任意一个聊天界面。
-    -   在底部的聊天输入框工具栏（附件上传按钮旁边），您会看到新增的图标按钮，点击即可使用相应功能。
-
--   **语言切换**:
-    -   安装脚本后，在 Claude 页面右下角点击 Manager 按钮。
-    -   在 Manager 面板的右上角点击 <img src="https://raw.githubusercontent.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/refs/heads/main/assets/icon-settings.svg" alt="设置图标" width="16" height="16" style="display: inline-block; vertical-align: middle;"> 按钮，打开设置面板。
-    -   在"语言设置"区域的"界面语言"中切换语言，然后点击面板最底部的"保存设置"。
-    -   等待页面自动刷新即可完成语言切换。
-
--   **快捷键**:
-    -   **Ctrl+M**: 快速隐藏/显示右下角的 Manager 按钮。在需要更纯净的界面时使用，再次按下即可恢复显示。
-
+三个脚本互不依赖，按需安装。Artifact 下载器需要授予 `GM_xmlhttpRequest` 权限（用于抓取要内联的运行时）。
 
 ---
 
 ## ⚠️ 注意事项
 
--   本脚本通过与 Claude 的前端和非公开 API 交互来实现功能。如果 Claude.ai
- 网站结构或 API 发生重大变化，可能导致脚本部分或全部功能失效。作者会尽力维护，但也请理解潜在的风险。
--   “批量删除”是永久性操作，无法撤销，请谨慎使用。
--   “强制PDF深度解析”功能主要为普通账户设计，以提升体验。
+-   本脚本通过与 Claude 的前端和非公开 API 交互来实现功能。Claude.ai 的页面结构或 API 一旦有较大变化，就可能导致部分功能失效。
 -   带附件的导出与 Claude Code 会话导出依赖浏览器的 File System Access API（`showDirectoryPicker`），需要 Chrome、Edge 等 Chromium 内核浏览器；Firefox 与 Safari 暂不支持。
 -   `generate-session-browser.command` 需要本机已安装 Node.js。
+-   Artifact 下载器保存 JSX 时会内联 Babel，单个文件约 3.4MB；这是为了让文件脱离网络也能运行。
 
 ---
 
-## 🤝 致谢与相关项目
+## 🤝 致谢
 
--   **本项目**: [f14XuanLv/Claude-Powerest-Manager_Enhancer](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)
--   **下一个项目预告**: [f14XuanLv/claude-dialog-tree-studio](https://github.com/f14XuanLv/claude-dialog-tree-studio) - 一个专注于 Claude 对话树的智能可视化编辑与管理工具，敬请期待！
+-   **上游项目**：[f14XuanLv/Claude-Powerest-Manager_Enhancer](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)——本 fork 的全部基础功能来自这里，感谢原作者 [@f14XuanLv](https://github.com/f14XuanLv)。
+-   **Artifact 下载器**：设计与实现参考自 [Ryan Ouyang / claude-artifact-html-downloader](https://github.com/Ryan-Ouyang/claude-artifact-html-downloader)，详细归属见 [NOTICE](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/NOTICE-ClaudeArtifactHTMLDownloader.md)。
 
-如果您觉得这个脚本对您有帮助，欢迎在 GitHub 上给一个 🌟 Star！如果您有任何问题或建议，请通过 [Issues](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/issues) 页面提出。
+与上游功能相关的问题，建议直接提到[上游 Issues](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/issues)；本 fork 新增部分的问题请提到[本仓库 Issues](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/issues)。
 
 ---
 
 ## 📄 许可 (License)
 
-本项目基于 [MIT License](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE) 授权。
+沿用上游的 [MIT License](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)。
