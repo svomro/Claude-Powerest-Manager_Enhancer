@@ -423,6 +423,8 @@ ${extraSources.map((library) => `<script>${escapeForScriptTag(library.source)}</
         `);
 
         function showToast(message, isError = false) {
+            // toast 只停留几秒，容易错过；同时留一条控制台记录，事后能查是哪条路径。
+            console[isError ? 'error' : 'info']('[Claude Artifact HTML Downloader]', message);
             document.getElementById(TOAST_ID)?.remove();
             const toast = document.createElement('div');
             toast.id = TOAST_ID;
@@ -574,7 +576,9 @@ ${extraSources.map((library) => `<script>${escapeForScriptTag(library.source)}</
                     if (!servedFromApi) {
                         const payload = await requestArtifactHtml();
                         const filename = downloadHtml(payload.html, resolveDownloadTitle(payload.title));
-                        showToast(`已下载 ${filename}${payload.source === 'dom' ? '（DOM 快照）' : ''}`);
+                        const sizeKb = Math.round(new Blob([payload.html]).size / 1024);
+                        const via = payload.source === 'dom' ? 'DOM 快照' : 'iframe 源码';
+                        showToast(`已下载 ${filename}（${via}，${sizeKb}KB）`);
                     }
                 } catch (error) {
                     console.error('[Claude Artifact HTML Downloader]', error);
