@@ -156,6 +156,10 @@
             .replace(/"/g, '&quot;');
     }
 
+    // 已知且刻意保留的例外：artifact 源码自带的网络字体（常见于 <style> 里的
+    // @import Google Fonts）不会被内联。中文字体按 unicode-range 切成几百个分片，
+    // 实测一个常见 artifact 就要多背 12MB base64，不值得；断网时字体降级到系统
+    // 衬线体，功能不受影响。
     async function buildOfflineReactDocument(artifact, onProgress = () => {}) {
         const requested = collectModuleRequests(artifact.content);
         const builtin = new Set(['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime']);
