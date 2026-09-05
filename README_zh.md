@@ -1,6 +1,6 @@
 # Claude 神级拓展增强脚本 (Claude Powerest Manager & Enhancer)
 
-[![版本](https://img.shields.io/badge/Version-1.2.5-blue.svg)](https://greasyfork.org/zh-CN/scripts/539886-claudepowerestmanager-enhancer)
+[![版本](https://img.shields.io/badge/Version-1.2.6-blue.svg)](https://greasyfork.org/zh-CN/scripts/539886-claudepowerestmanager-enhancer)
 [![许可证](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
 [![平台](https://img.shields.io/badge/Platform-Tampermonkey-yellow.svg)](https://www.tampermonkey.net/)
 [![支持的网站](https://img.shields.io/badge/Site-Claude.ai-orange.svg)](https://claude.ai)
@@ -45,7 +45,7 @@
 
 ## ✨ 核心功能
 
-脚本主要分为两大功能区：**对话管理器** 和 **聊天增强器**。
+脚本主要分为三大功能区：**对话管理器**、**聊天增强器** 和 **Claude Code 会话导出**。
 
 ### 1. 对话管理器 (Manager)
 
@@ -107,6 +107,46 @@
         - **拖拽移动**: 面板支持拖拽到屏幕任意位置，适应不同的使用习惯。
     -   **适用场景**: 特别适合处理长对话时快速定位和回顾历史内容，提升对话导航效率。
 
+### 3. Claude Code 会话导出
+
+在 Claude Code 的会话页（`claude.ai/code/session_...`）打开右上角的 **Session actions** 菜单，其中会多出一项 **「导出会话」**。
+
+-   **📦 完整导出**:
+    -   抓取会话元数据与全部事件，自动翻页，不受会话长度限制。
+    -   一并下载会话中的附件，按来源与 UUID 智能命名；已存在的文件会跳过，可断点续传。
+    -   目录结构：`Claude_Exports/[组织名]/[ClaudeCode]_[会话标题]_[session_id]/`
+    -   会话没有标题时，自动取首条用户消息的前 40 字作为文件夹名，避免导出一堆无法区分的 `[Untitled]`。
+
+-   **🖥️ 离线会话浏览器**:
+    -   仓库根目录的 `generate-session-browser.command` 可把导出的 JSON 生成一个可离线浏览的 HTML。
+    -   双击运行后，把导出的会话文件夹拖进终端窗口回车即可；也支持命令行直接传参。
+    -   拖入的可以是会话文件夹、里面的 `session_*.json`，或是上层目录（会自动向下寻找，有多个时列出让你选）。
+    -   生成的页面分「官网视图」「消息审计」「全部事件」「附件」四层：既能像官网一样顺畅阅读，也能逐条复核原始数据。
+
+---
+
+## 📦 附加脚本
+
+仓库内另有两个独立的用户脚本，与主脚本互不依赖，可按需单独安装。
+
+### Claude Artifact HTML 下载器 (`ClaudeArtifactHTMLDownloader.user.js`)
+
+在 Artifact 页面右下角注入「下载 HTML」按钮，按 artifact 类型自动选择最保真的保存方式：
+
+| Artifact 类型 | 保存方式 | 结果 |
+| --- | --- | --- |
+| React / JSX | 读取源码，连同 React、ReactDOM、Tailwind、Babel 一并内联 | 单文件，**断网也能交互** |
+| 完整 HTML 文档 | 读取原始源码 | 保留注释与未执行的分支 |
+| 其他情况 | iframe DOM 快照 | 与页面所见一致 |
+
+-   **JSX 的编译发生在保存下来的文件被本地打开时**，而不是在 claude.ai 页面上——后者的 CSP 不含 `unsafe-eval`，且该策略会被 blob Worker 与 `data:` iframe 一并继承，页面内没有任何可执行动态代码的角落。因此脚本本身全程只做网络请求与字符串拼接。
+-   内置 `lucide-react`、`recharts`、`d3`、`lodash`、`papaparse`、`three`、`mathjs`、`tone` 的映射；遇到无法内联的依赖会明确提示，而不是让你下载完打开一片空白。
+-   artifact 源码自带的网络字体（如 Google Fonts）**不会**内联：中文字体按 unicode-range 切成数百个分片，实测一份常见 artifact 就要多背约 12MB。断网时字体降级到系统衬线体，功能不受影响。
+
+### 模型别名菜单 (`ClaudeModelAliasMenu.user.js`)
+
+实验性脚本，在 Claude 的 More models 子菜单下追加手动指定的模型 id 行。
+
 ---
 
 ## 🛠️ 安装
@@ -146,6 +186,8 @@
  网站结构或 API 发生重大变化，可能导致脚本部分或全部功能失效。作者会尽力维护，但也请理解潜在的风险。
 -   “批量删除”是永久性操作，无法撤销，请谨慎使用。
 -   “强制PDF深度解析”功能主要为普通账户设计，以提升体验。
+-   带附件的导出与 Claude Code 会话导出依赖浏览器的 File System Access API（`showDirectoryPicker`），需要 Chrome、Edge 等 Chromium 内核浏览器；Firefox 与 Safari 暂不支持。
+-   `generate-session-browser.command` 需要本机已安装 Node.js。
 
 ---
 

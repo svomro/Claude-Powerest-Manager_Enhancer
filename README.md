@@ -1,6 +1,6 @@
 # Claude Powerest Manager & Enhancer
 
-[![Version](https://img.shields.io/badge/Version-1.2.5-blue.svg)](https://greasyfork.org/en/scripts/539886-claudepowerestmanager-enhancer)
+[![Version](https://img.shields.io/badge/Version-1.2.6-blue.svg)](https://greasyfork.org/en/scripts/539886-claudepowerestmanager-enhancer)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Tampermonkey-yellow.svg)](https://www.tampermonkey.net/)
 [![Supported Site](https://img.shields.io/badge/Site-Claude.ai-orange.svg)](https://claude.ai)
@@ -45,7 +45,7 @@ This is an extremely powerful Tampermonkey script designed to enhance your Claud
 
 ## ✨ Core Features
 
-The script is divided into two main functional areas: **Conversation Manager** and **Chat Enhancer**.
+The script is divided into three main functional areas: **Conversation Manager**, **Chat Enhancer**, and **Claude Code Session Export**.
 
 ### 1. Conversation Manager
 
@@ -107,6 +107,46 @@ This module injects new function buttons directly into the chat input toolbar in
         - **Draggable**: The panel can be dragged to any position on the screen to suit different user habits.
     -   **Use Case**: Especially useful for quickly locating and reviewing historical content in long conversations, improving navigation efficiency.
 
+### 3. Claude Code Session Export
+
+On a Claude Code session page (`claude.ai/code/session_...`), open the **Session actions** menu in the top-right corner — an **"Export session"** entry is added to it.
+
+-   **📦 Full Export**:
+    -   Fetches session metadata and every event, paginating automatically so session length is not a limit.
+    -   Downloads the session's attachments alongside it, named after their origin and UUID; files that already exist are skipped, so an interrupted export can be resumed.
+    -   Directory layout: `Claude_Exports/[Org]/[ClaudeCode]_[Session Title]_[session_id]/`
+    -   When a session has no title, the first 40 characters of the opening user message are used for the folder name instead — no more piles of indistinguishable `[Untitled]` folders.
+
+-   **🖥️ Offline Session Browser**:
+    -   `generate-session-browser.command` in the repository root turns an exported JSON into a self-contained HTML page you can read offline.
+    -   Double-click it, then drag the exported session folder into the terminal window and press Enter; passing the path as a command-line argument works too.
+    -   You can drop in the session folder, the `session_*.json` inside it, or a parent directory (it searches downwards, and lists the candidates when there is more than one).
+    -   The generated page has four layers — "site view", "message audit", "all events", and "attachments" — so you can read it like the real site while still being able to verify every raw record.
+
+---
+
+## 📦 Companion Scripts
+
+The repository also contains two standalone userscripts. Neither depends on the main script; install them individually as needed.
+
+### Claude Artifact HTML Downloader (`ClaudeArtifactHTMLDownloader.user.js`)
+
+Injects a "Download HTML" button in the bottom-right of an Artifact page, picking the most faithful way to save it based on the artifact's type:
+
+| Artifact type | How it is saved | Result |
+| --- | --- | --- |
+| React / JSX | Reads the source and inlines React, ReactDOM, Tailwind and Babel with it | One file, **interactive even with no network** |
+| Complete HTML document | Reads the original source | Keeps comments and branches that never ran |
+| Anything else | iframe DOM snapshot | Matches what the page showed |
+
+-   **JSX is compiled when the saved file is opened locally**, not on the claude.ai page: that page's CSP has no `unsafe-eval`, and the policy is inherited by blob workers and `data:` iframes alike, leaving nowhere in the page to run dynamic code. The script itself therefore only performs network requests and string concatenation.
+-   Ships mappings for `lucide-react`, `recharts`, `d3`, `lodash`, `papaparse`, `three`, `mathjs` and `tone`; a dependency that cannot be inlined is reported explicitly rather than leaving you with a blank page after download.
+-   Web fonts pulled in by the artifact's own source (Google Fonts, typically) are **not** inlined: CJK families are split into hundreds of unicode-range subsets, and one ordinary artifact measured ~12MB of extra weight. Offline, the font falls back to a system serif; nothing else is affected.
+
+### Model Alias Menu (`ClaudeModelAliasMenu.user.js`)
+
+An experimental script that appends manually specified model id rows under Claude's "More models" submenu.
+
 ---
 
 ## 🛠️ Installation
@@ -143,6 +183,8 @@ This module injects new function buttons directly into the chat input toolbar in
 -   This script works by interacting with Claude's front-end and private APIs. If the structure of the Claude.ai website or its APIs changes significantly, it may cause some or all of the script's features to break. The author will do their best to maintain it, but please understand the potential risks.
 -   "Bulk Delete" is a permanent action and cannot be undone. Please use it with caution.
 -   The "Force PDF Deep Analysis" feature is primarily designed for regular accounts to enhance their experience.
+-   Exports that include attachments, as well as Claude Code session export, rely on the browser's File System Access API (`showDirectoryPicker`). A Chromium-based browser such as Chrome or Edge is required; Firefox and Safari are not supported yet.
+-   `generate-session-browser.command` requires Node.js to be installed locally.
 
 ---
 
