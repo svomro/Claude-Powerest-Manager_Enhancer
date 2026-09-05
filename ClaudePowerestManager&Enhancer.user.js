@@ -2778,14 +2778,17 @@
         keydownHandler: null,
         essentialElementIds: ['cpm-manager-button', 'cpm-main-panel', 'cpm-settings-panel', 'cpm-tree-panel'],
 
-        isCodePage() {
-            return /^\/code(?:\/|$)/.test(location.pathname);
+        // Claude Code 和 artifact 独立页都没有对话列表可管，
+        // 而且 artifact 页右下角是下载按钮的位置，两者会叠在一起。
+        isManagerIrrelevantPage() {
+            const path = location.pathname;
+            return /^\/code(?:\/|$)/.test(path) || /^\/public\/artifacts(?:\/|$)/.test(path);
         },
 
         syncManagerButtonVisibility() {
             const managerButton = document.getElementById('cpm-manager-button');
             if (!managerButton) return;
-            managerButton.style.display = this.isManagerButtonVisible && !this.isCodePage() ? 'block' : 'none';
+            managerButton.style.display = this.isManagerButtonVisible && !this.isManagerIrrelevantPage() ? 'block' : 'none';
         },
 
         init() {
@@ -2885,7 +2888,7 @@
             managerButton.id = 'cpm-manager-button';
             managerButton.innerHTML = t('manager.title');
             managerButton.title = t('tooltip.managerButton');
-            managerButton.style.display = this.isManagerButtonVisible && !this.isCodePage() ? 'block' : 'none';
+            managerButton.style.display = this.isManagerButtonVisible && !this.isManagerIrrelevantPage() ? 'block' : 'none';
             document.body.appendChild(managerButton);
 
             const mainPanel = document.createElement('div');
