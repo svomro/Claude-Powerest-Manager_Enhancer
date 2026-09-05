@@ -148,6 +148,11 @@
             .replace(/<!--/g, '<\\!--');
     }
 
+    // 只认完整文档：片段直接存成 .html 会缺 doctype/head，不如退回 DOM 快照。
+    function looksLikeHtmlDocument(content) {
+        return typeof content === 'string' && /^\s*(?:<!doctype\s+html|<html[\s>])/i.test(content);
+    }
+
     function escapeHtml(value) {
         return String(value)
             .replace(/&/g, '&amp;')
@@ -502,9 +507,10 @@ ${extraSources.map((library) => `<script>${escapeForScriptTag(library.source)}</
             return filename;
         }
 
-        // React artifact 能直接拿到 JSX 源码，编译后打成离线单文件；
-        // 拿不到或不是 React 就返回 false，交回原来的 iframe 快照流程。
-        async function tryDownloadReactArtifact(setLabel) {
+        // 已发布的 artifact 能直接从 API 拿到原始源码：React 编译打包成离线单文件，
+        // HTML 直接落原稿（比 iframe 里的 DOM 快照保真，保留注释、脚本和未执行的分支）。
+        // 其余类型或取不到源码时返回 false，交回原来的 iframe 快照流程。
+        async function tryDownloadPublishedArtifact(setLabel) {
             const artifactId = publishedArtifactId();
             if (!artifactId) return false;
 
@@ -515,19 +521,32 @@ ${extraSources.map((library) => `<script>${escapeForScriptTag(library.source)}</
                 console.debug('[Claude Artifact HTML Downloader] published_artifacts lookup failed, falling back.', error);
                 return false;
             }
-            if (artifact.type !== REACT_ARTIFACT_TYPE) return false;
 
-            const { html, unsupported, extras } = await buildOfflineReactDocument(artifact, setLabel);
-            setLabel('正在保存…');
-            const filename = downloadHtml(html, artifact.title);
-            const sizeKb = Math.round(new Blob([html]).size / 1024);
-            const bundled = extras.length ? `，含 ${extras.join('、')}` : '';
-            if (unsupported.length) {
-                showToast(`已下载 ${filename}（${sizeKb}KB）；但 ${unsupported.join('、')} 无法内联，打开后这部分会报错。`, true);
-            } else {
-                showToast(`已下载 ${filename}（离线可用，${sizeKb}KB${bundled}）`);
+            if (artifact.type === REACT_ARTIFACT_TYPE) {
+                const { html, unsupported, extras } = await buildOfflineReactDocument(artifact, setLabel);
+                setLabel('正在保存…');
+                const filename = downloadHtml(html, artifact.title);
+                const sizeKb = Math.round(new Blob([html]).size / 1024);
+                const bundled = extras.length ? `，含 ${extras.join('、')}` : '';
+                if (unsupported.length) {
+                    showToast(`已下载 ${filename}（${sizeKb}KB）；但 ${unsupported.join('、')} 无法内联，打开后这部分会报错。`, true);
+                } else {
+                    showToast(`已下载 ${filename}（离线可用，${sizeKb}KB${bundled}）`);
+                }
+                return true;
             }
-            return true;
+
+            // 不认死 type 字段：只要正文本身就是一份完整 HTML 文档就照原样存。
+            // 判不准时宁可落回 iframe 快照，也不存一份残缺的 HTML。
+            if (looksLikeHtmlDocument(artifact.content)) {
+                setLabel('正在保存…');
+                const filename = downloadHtml(artifact.content, artifact.title);
+                const sizeKb = Math.round(new Blob([artifact.content]).size / 1024);
+                showToast(`已下载 ${filename}（原始源码，${sizeKb}KB）`);
+                return true;
+            }
+
+            return false;
         }
 
         function createButton() {
@@ -551,8 +570,8 @@ ${extraSources.map((library) => `<script>${escapeForScriptTag(library.source)}</
                 button.disabled = true;
                 setLabel('正在读取…');
                 try {
-                    const reactResult = await tryDownloadReactArtifact(setLabel);
-                    if (!reactResult) {
+                    const servedFromApi = await tryDownloadPublishedArtifact(setLabel);
+                    if (!servedFromApi) {
                         const payload = await requestArtifactHtml();
                         const filename = downloadHtml(payload.html, resolveDownloadTitle(payload.title));
                         showToast(`已下载 ${filename}${payload.source === 'dom' ? '（DOM 快照）' : ''}`);
