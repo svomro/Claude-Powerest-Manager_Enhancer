@@ -62,6 +62,28 @@ for (const entry of entries) {
 attachments.sort((a, b) => (a.eventNumber ?? Number.MAX_SAFE_INTEGER) - (b.eventNumber ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+
+// This page embeds the whole session JSON, so a scanner that only looks at size or
+// content could easily read it as a record. It is a viewer: say so in the page, with
+// the same field names the JSON artifacts carry.
+const userscriptPath = path.join(scriptDirectory, '..', 'ClaudePowerestManager&Enhancer.user.js');
+let exporterVersion = 'unknown';
+try {
+    const header = await fs.readFile(userscriptPath, 'utf8');
+    exporterVersion = header.match(/^\/\/ @version\s+(\S+)/m)?.[1] ?? 'unknown';
+} catch {
+    // Built from a copy that does not sit next to the userscript; the role still holds.
+}
+const escapeAttribute = value => String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/"/g, '&quot;');
+const provenanceMeta = [
+    ['generator', `claude-powerest-manager-enhancer ${exporterVersion}`],
+    ['exporter', 'claude-powerest-manager-enhancer'],
+    ['exporter_version', exporterVersion],
+    ['artifact_role', 'code_session_browser']
+].map(([name, content]) => `    <meta name="${name}" content="${escapeAttribute(content)}">`).join('\n');
 const templatePath = path.join(scriptDirectory, 'code-session-browser-template.html');
 let html = await fs.readFile(templatePath, 'utf8');
 
@@ -69,7 +91,8 @@ const safeJson = value => JSON.stringify(value).replace(/</g, '\\u003c');
 const replacements = new Map([
     ['__SOURCE_FILE_NAME__', sourceFileName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')],
     ['__ATTACHMENT_DATA__', safeJson(attachments)],
-    ['__SESSION_DATA__', safeJson(exportData)]
+    ['__SESSION_DATA__', safeJson(exportData)],
+    ['__PROVENANCE_META__', provenanceMeta]
 ]);
 
 for (const [placeholder, value] of replacements) {
@@ -84,6 +107,7 @@ await fs.writeFile(outputPath, html, 'utf8');
 console.log(JSON.stringify({
     outputPath,
     sourceFileName,
+    exporterVersion,
     eventCount: exportData.events.length,
     attachmentCount: attachments.length,
     outputBytes: Buffer.byteLength(html)

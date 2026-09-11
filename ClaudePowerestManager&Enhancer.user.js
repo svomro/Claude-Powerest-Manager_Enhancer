@@ -22,9 +22,35 @@
 (function(window) {
     'use strict';
 
-    const LOG_PREFIX = "[ClaudePowerestManager&Enhancer v1.2.6]:"
+    // The version has exactly one source: the `// @version` header above, read back
+    // through GM_info. It used to be written twice -- once there, once inline in
+    // LOG_PREFIX -- which is a drift waiting to happen: a release bumps one and the
+    // log, and now every exported file, keeps claiming the old one.
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info?.script?.version) || 'unknown';
+    const EXPORTER_NAME = 'claude-powerest-manager-enhancer';
+    const LOG_PREFIX = `[ClaudePowerestManager&Enhancer v${SCRIPT_VERSION}]:`;
     console.log(LOG_PREFIX, "脚本已加载。");
 
+    // Every JSON artifact this script writes says what it is, so an archive scanner
+    // reads provenance out of the file instead of guessing from the name. It has to:
+    // a Claude conversation export and a ChatGPT one are both `history-<ts>.json`
+    // inside a folder called `[Original]_[title]_[id]`, and their schemas have
+    // nothing in common. Same field names as the chatgpt-archive exporter so one
+    // scanner rule covers both.
+    function archiveExportInfo(artifactRole, sourceSchema) {
+        return {
+            exporter: EXPORTER_NAME,
+            exporter_version: SCRIPT_VERSION,
+            artifact_role: artifactRole,
+            source_schema: sourceSchema
+        };
+    }
+
+    // Appended, never merged into the server's own keys: the record stays byte-for-byte
+    // what Claude answered, with one exporter-owned field beside it.
+    function withExportProvenance(data, artifactRole, sourceSchema) {
+        return { ...data, _archive_export: archiveExportInfo(artifactRole, sourceSchema) };
+    }
 
     // 全局HTML转义函数 - 统一的转义实现
     function escapeHTML(str) {
@@ -2420,7 +2446,11 @@
             const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
             const fileName = `${sessionId}-${timestamp}.json`;
             statusCallback(t('status.writingFile').replace('{0}', fileName), 'info');
-            await this.writeFileToDirectory(exportDirHandle, fileName, JSON.stringify(exportData, null, 2));
+            await this.writeFileToDirectory(
+                exportDirHandle,
+                fileName,
+                JSON.stringify(withExportProvenance(exportData, 'code_session_source', 'code_session_events'), null, 2)
+            );
             const attachments = await this.exportCodeSessionAttachments(exportData, exportDirHandle, orgInfo.uuid, statusCallback);
 
             return {
@@ -2565,7 +2595,11 @@
                 statusCallback(t('status.writingFile').replace('{0}', historyFileName), 'info');
                 const historyFileHandle = await exportDirHandle.getFileHandle(historyFileName, { create: true });
                 const writableHistory = await historyFileHandle.createWritable();
-                await writableHistory.write(JSON.stringify(historyData, null, 2));
+                await writableHistory.write(JSON.stringify(
+                    withExportProvenance(historyData, 'conversation_source', 'chat_conversations_tree'),
+                    null,
+                    2
+                ));
                 await writableHistory.close();
 
                 await this.exportAttachmentsForConversation(historyData, exportDirHandle, statusCallback);
@@ -2692,7 +2726,14 @@
 
                 statusCallback(t('status.convertingData'), 'info');
                 const transformedData = this.transformConversation(historyData, settings);
-                const jsonString = JSON.stringify(transformedData, null, 2);
+                // `conversation_subset`, not `conversation_source`: these files are
+                // whatever the export settings kept, so a scanner must not read one as
+                // the complete record.
+                const jsonString = JSON.stringify(
+                    withExportProvenance(transformedData, 'conversation_subset', 'chat_conversations_tree'),
+                    null,
+                    2
+                );
 
                 const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
                 const historyFileName = `history-${timestamp}.json`;
@@ -3286,10 +3327,14 @@
 
             let dataToWrite;
             if (type === 'original') {
-                dataToWrite = historyData;
+                dataToWrite = withExportProvenance(historyData, 'conversation_source', 'chat_conversations_tree');
             } else if (type === 'custom') {
                 const settings = this.tempBatchExportSettings;
-                dataToWrite = ManagerService.transformConversation(historyData, settings);
+                dataToWrite = withExportProvenance(
+                    ManagerService.transformConversation(historyData, settings),
+                    'conversation_subset',
+                    'chat_conversations_tree'
+                );
             }
 
             const historyFileHandle = await exportDirHandle.getFileHandle(historyFileName, { create: true });
