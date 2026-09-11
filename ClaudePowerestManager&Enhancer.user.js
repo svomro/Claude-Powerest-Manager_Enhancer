@@ -365,7 +365,7 @@
                 // Toolbar labels
                 'toolbar.sort': '排序:',
                 'toolbar.filter': '筛选:',
-                'toolbar.searchPlaceholder': '搜索标题...',
+                'toolbar.searchPlaceholder': '搜索标题或 ID...',
 
                 // Batch operations detailed settings
                 'batchOps.starUnstar': '批量收藏/取消收藏',
@@ -628,7 +628,7 @@
                 // Toolbar labels
                 'toolbar.sort': 'Sort:',
                 'toolbar.filter': 'Filter:',
-                'toolbar.searchPlaceholder': 'Search titles...',
+                'toolbar.searchPlaceholder': 'Search titles or ID...',
 
                 // Batch operations detailed settings
                 'batchOps.starUnstar': 'Batch Star/Unstar',
@@ -3626,12 +3626,21 @@
             }
         },
         escapeRegExp(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); },
+        // 从输入里抠出一段 id 探针：至少 8 位连续 hex。UUID 的头一段正好 8 位，而 8 位 hex
+        // 不会是碰巧敲出来的，所以短词照旧只搜标题，不会被一堆 id 命中淹没。顺带让整条 URL
+        // 和导出目录名里的 [uuid] 直接粘进来就能用——不必先把 id 择出来。
+        idProbe(input) { return (String(input).match(/[0-9a-f]{8}[0-9a-f-]*/i) || [''])[0].toLowerCase(); },
+        matchesSearch(convo, titlePattern, probe) {
+            if (titlePattern.test(convo.name || '')) return true;
+            return Boolean(probe) && String(convo.uuid || '').toLowerCase().includes(probe);
+        },
         renderConversationList() {
             const listContainer = document.querySelector('#cpm-main-panel .cpm-list-container');
             let conversationsToRender = [...ManagerService.conversationsCache];
             if (this.currentSearch) {
-                const searchPattern = new RegExp(this.escapeRegExp(this.currentSearch), 'i');
-                conversationsToRender = conversationsToRender.filter(c => searchPattern.test(c.name || ''));
+                const titlePattern = new RegExp(this.escapeRegExp(this.currentSearch), 'i');
+                const probe = this.idProbe(this.currentSearch);
+                conversationsToRender = conversationsToRender.filter(c => this.matchesSearch(c, titlePattern, probe));
             }
             if (this.currentFilter === 'starred') conversationsToRender = conversationsToRender.filter(c => c.is_starred);
             else if (this.currentFilter === 'unstarred') conversationsToRender = conversationsToRender.filter(c => !c.is_starred);
