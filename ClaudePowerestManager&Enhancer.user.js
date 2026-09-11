@@ -65,6 +65,9 @@
     const ATTACHMENT_MANIFEST_VERSION = 1;
     const MANIFEST_FILE_NAME = 'attachments-manifest.json';
     const SNIFF_BYTES = 4096;
+    // Per download candidate. Small on purpose: this runs in the page while the user
+    // watches, and the point is to ride out a blip, not to wait out an outage.
+    const ATTACHMENT_FETCH_ATTEMPTS = 3;
 
     // Leading bytes are the only thing that actually says what a file is. The
     // declared name lies (a WebP called .jpeg), and `/contents` sends no
@@ -2571,6 +2574,7 @@
             const attachments = this.collectCodeSessionAttachments(exportData);
             const result = { total: attachments.length, downloaded: 0, skipped: 0, failed: 0 };
             const entries = [];
+            const previousManifest = await this.readPreviousManifest(exportDirHandle);
 
             if (attachments.length > 0) {
                 statusCallback(t('export.foundAttachments', 'export.foundAttachments', attachments.length), 'info');
@@ -2596,16 +2600,21 @@
                 };
                 entries.push(entry);
 
+                let existing = null;
                 try {
-                    const existing = await this.inspectExistingAttachment(exportDirHandle, fileName);
-                    if (existing?.usable) {
+                    existing = await this.inspectExistingAttachment(exportDirHandle, fileName, entry.expectedSize);
+                    if (existing?.usable && !(await this.existingCopyIsDowngraded(existing, previousManifest, entry))) {
                         result.skipped++;
                         entry.status = 'existing';
                         await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                        this.inheritRecordedProvenance(entry, previousManifest);
+                        previousManifest.remember(entry);
                         statusCallback(t('export.skipExistingFile', 'export.skipExistingFile', i + 1, attachments.length, fileName), 'info');
                         continue;
                     }
-                    if (existing) {
+                    if (existing?.usable) {
+                        console.warn(`${LOG_PREFIX} 本地副本疑似 preview 降级，尝试回源取原图 ${fileName}`);
+                    } else if (existing) {
                         console.warn(`${LOG_PREFIX} 本地副本不可用，将重新下载 ${fileName}: ${existing.reason}`);
                     }
 
@@ -2629,15 +2638,40 @@
                         if (attachment.previewUrl) candidates.push({ url: attachment.previewUrl, variant: 'preview' });
                         if (candidates.length === 0 && !attachment.inlineFallback) throw new Error(t('export.noDownloadUrl'));
                         try {
-                            const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType);
+                            const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType, entry.expectedSize);
                             content = downloaded.blob;
                             sniffedType = downloaded.sniffedType;
                             entry.variant = downloaded.variant;
                             if (downloaded.skipped.length) entry.originalError = downloaded.skipped.join(' | ');
+                            if (!this.mayReplaceExisting(existing, downloaded.variant)) {
+                                result.skipped++;
+                                entry.status = 'existing';
+                                entry.variant = null;
+                                entry.originalError = [entry.originalError,
+                                    `kept the existing local copy rather than overwrite it with a ${downloaded.variant}`]
+                                    .filter(Boolean).join(' | ');
+                                await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                                this.inheritRecordedProvenance(entry, previousManifest);
+                            previousManifest.remember(entry);
+                                continue;
+                            }
                         } catch (error) {
                             // The message still carries the image inline; that copy is
                             // the attachment too, and the manifest says which one landed.
                             if (!attachment.inlineFallback) throw error;
+                            // The inline copy is a fallback, not an original, so it
+                            // obeys the same rule: it may not overwrite a usable file.
+                            if (!this.mayReplaceExisting(existing, 'inline-fallback')) {
+                                result.skipped++;
+                                entry.status = 'existing';
+                                entry.originalError = [`remote: ${error.message}`,
+                                    'kept the existing local copy rather than overwrite it with the inline fallback']
+                                    .join(' | ');
+                                await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                                this.inheritRecordedProvenance(entry, previousManifest);
+                                previousManifest.remember(entry);
+                                continue;
+                            }
                             const extension = this.getImageExtension(attachment.inlineFallback.mimeType);
                             fileName = this.buildCodeAttachmentFileName(fileName.replace(/_\[[^\]]+\](?=\.[^.]+$|$)/, ''), attachment.fileUuid, extension);
                             entry.localFile = fileName;
@@ -2652,6 +2686,7 @@
                     result.downloaded++;
                     entry.status = 'downloaded';
                     await this.recordAttachmentBytes(entry, content, sniffedType);
+                    previousManifest.remember(entry);
                 } catch (error) {
                     result.failed++;
                     const gone = error?.status === 403 || error?.status === 404 || error?.status === 410;
@@ -2742,22 +2777,45 @@
         // A 200 alone is not enough: the same endpoint answers 200 for the file and
         // 404 with a JSON error envelope for a missing one, and a CDN in front of it
         // can answer 200 with an XML error document.
-        async fetchAttachmentBlob(candidates, declaredMimeType) {
+        //
+        // Each candidate gets its own retry budget. Without one, a single 500 or a
+        // network blip on `/contents` silently demotes the attachment to a preview
+        // for good -- a transient fault must not cost image quality. Only a definite
+        // answer (403/404/410) moves straight to the next candidate.
+        async fetchAttachmentBlob(candidates, declaredMimeType, expectedSize = null) {
             let lastError = null;
             // Why the earlier candidates were passed over. Without this, "the server
             // no longer has the original" and "we asked for it wrongly" produce the
             // same manifest entry: a preview, and no explanation.
             const skipped = [];
             for (const candidate of candidates) {
-                try {
-                    const blob = await ClaudeAPI.downloadFile(candidate.url);
-                    const inspected = await inspectBlob(blob);
-                    const problem = describeErrorPayload({ declaredMimeType, head: inspected.text });
-                    if (problem) throw new Error(`Download did not return the attachment: ${problem}`);
-                    return { blob, sniffedType: inspected.sniffedType, variant: candidate.variant, skipped };
-                } catch (error) {
-                    lastError = error;
-                    skipped.push(`${candidate.variant}: ${error.message}`);
+                for (let attempt = 1; attempt <= ATTACHMENT_FETCH_ATTEMPTS; attempt++) {
+                    try {
+                        const blob = await ClaudeAPI.downloadFile(candidate.url);
+                        const inspected = await inspectBlob(blob);
+                        const problem = describeErrorPayload({ declaredMimeType, head: inspected.text });
+                        if (problem) throw new Error(`Download did not return the attachment: ${problem}`);
+                        // A truncated body can still carry a valid JPEG/PNG header, so
+                        // the declared size is the only thing that catches it.
+                        //
+                        // Only for the original: a preview is a re-encode and its size
+                        // differs from the declared one by design. Checking it there
+                        // would reject every preview and fail the whole attachment.
+                        if (candidate.variant === 'original' && expectedSize != null && blob.size !== expectedSize) {
+                            throw new Error(`Size mismatch: expected ${expectedSize}, received ${blob.size}`);
+                        }
+                        return { blob, sniffedType: inspected.sniffedType, variant: candidate.variant, skipped };
+                    } catch (error) {
+                        lastError = error;
+                        const gone = error?.status === 403 || error?.status === 404 || error?.status === 410;
+                        const transient = !gone && (error?.status == null || error.status === 408
+                            || error.status === 429 || error.status >= 500);
+                        if (!transient || attempt === ATTACHMENT_FETCH_ATTEMPTS) {
+                            skipped.push(`${candidate.variant}: ${error.message}`);
+                            break;
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    }
                 }
             }
             throw lastError || new Error(t('export.noDownloadUrl'));
@@ -2774,10 +2832,63 @@
                 : null;
             return entry;
         },
-        // A local copy only counts as the attachment when its bytes do not contradict
-        // it. An archive written before the preview bug was found is full of files
-        // that do, and re-running the export should replace them rather than skip them.
-        async inspectExistingAttachment(directoryHandle, fileName) {
+        // What a previous run recorded, looked up by attachment identity.
+        //
+        // Not by hash. Identical bytes can be referenced by many different
+        // attachments -- one real export has 20 distinct fileIds sharing a single
+        // sha256 -- so a hash cannot say which record this is, and keying a map by it
+        // silently lets the last record win and contaminate the others' provenance.
+        // Identity says which record; the hash then only confirms that the record
+        // still describes the bytes sitting on disk.
+        async readPreviousManifest(directoryHandle) {
+            let assets = [];
+            try {
+                const handle = await directoryHandle.getFileHandle(MANIFEST_FILE_NAME, { create: false });
+                const manifest = JSON.parse(await (await handle.getFile()).text());
+                assets = Array.isArray(manifest.assets) ? manifest.assets : [];
+            } catch {
+                // No previous manifest, or it is unreadable. Then nothing is inherited.
+            }
+            const matches = (recorded, entry, field) =>
+                recorded[field] && entry[field] && recorded[field] === entry[field];
+            // Facts this run has already established. The same file_uuid legitimately
+            // appears more than once in one export -- `files` and `files_v2` of the
+            // same message, or several messages citing it -- and each occurrence gets
+            // its own manifest entry. Without this, the first occurrence downloads the
+            // original and the second reads the bytes it just wrote, finds the new hash
+            // nowhere in last run's manifest, and records `variant: null`: two entries
+            // for one file disagreeing about how it was obtained.
+            const confirmed = [];
+            const lookup = (pool, entry) => pool.find(a => matches(a, entry, 'fileId'))
+                ?? pool.find(a => matches(a, entry, 'key'))
+                ?? pool.find(a => matches(a, entry, 'localFile'));
+            return {
+                assets,
+                find(entry, sha256) {
+                    if (!entry) return null;
+                    const recorded = lookup(confirmed, entry) ?? lookup(assets, entry);
+                    if (!recorded) return null;
+                    // The bytes moved on; whatever that record said is about a file
+                    // that is no longer here.
+                    return recorded.sha256 && sha256 && recorded.sha256 === sha256 ? recorded : null;
+                },
+                // A snapshot, not the live entry: what was true when it settled.
+                remember(entry) {
+                    if (!entry?.sha256) return;
+                    confirmed.unshift({
+                        fileId: entry.fileId, key: entry.key, localFile: entry.localFile,
+                        sha256: entry.sha256, variant: entry.variant, originalError: entry.originalError
+                    });
+                }
+            };
+        },
+        // A local copy is unusable only when it is not the attachment at all: empty,
+        // an error document, or the wrong length. It is NOT unusable merely because
+        // its bytes disagree with its extension -- measured 2026-09-12, Claude itself
+        // serves originals that way (`.png`名 + real JPEG bytes, straight from
+        // `/contents`), and discarding those would re-download a file that was already
+        // perfect, then risk replacing it with a preview.
+        async inspectExistingAttachment(directoryHandle, fileName, expectedSize = null) {
             let file;
             try {
                 const handle = await directoryHandle.getFileHandle(fileName, { create: false });
@@ -2791,15 +2902,63 @@
             const claimed = extensionMediaType(fileName);
             const problem = describeErrorPayload({ declaredMimeType: claimed, head: inspected.text });
             if (problem) return { file, sniffedType: inspected.sniffedType, usable: false, reason: problem };
-            if (inspected.sniffedType && claimed && inspected.sniffedType !== claimed) {
+            if (expectedSize != null && file.size !== expectedSize) {
                 return {
                     file,
                     sniffedType: inspected.sniffedType,
                     usable: false,
-                    reason: `the local file is ${inspected.sniffedType}, not the ${claimed} its name claims`
+                    reason: `the local file is ${file.size} bytes, not the declared ${expectedSize}`
                 };
             }
-            return { file, sniffedType: inspected.sniffedType, usable: true };
+            return {
+                file,
+                sniffedType: inspected.sniffedType,
+                usable: true,
+                // Not a defect -- just what the bytes are next to what the name says.
+                mismatch: inspected.sniffedType && claimed && inspected.sniffedType !== claimed
+                    ? `${claimed} by name, ${inspected.sniffedType} by content`
+                    : null
+            };
+        },
+        // Whether a usable local file is worth trying to improve on. Claude serves
+        // previews as WebP (16 of 16 preview downgrades measured on 2026-09-12 were
+        // WebP; the two `original` mismatches were JPEG), so WebP bytes under a name
+        // that does not say `.webp` are the fingerprint of an archive written before
+        // the preview bug was fixed. A manifest that already called this hash an
+        // original overrides the guess.
+        async existingCopyIsDowngraded(existing, previousManifest, entry) {
+            if (!existing?.usable) return false;
+            const hash = await sha256Hex(existing.file);
+            const recorded = previousManifest.find(entry, hash);
+            if (recorded?.variant && recorded.variant !== 'preview') return false;
+            if (recorded?.variant === 'preview') return true;
+            const claimed = extensionMediaType(existing.file.name || '');
+            return existing.sniffedType === 'image/webp' && claimed !== null && claimed !== 'image/webp';
+        },
+        // The invariant that makes re-running an export safe, and the whole of it:
+        // only an original may take the place of a file that is already usable.
+        // A preview, or an inline fallback, lands only where there is nothing usable
+        // to lose.
+        //
+        // It deliberately does not look at the bytes. An earlier version allowed the
+        // overwrite whenever the local copy was WebP, which held for exactly one run:
+        // accepting a file as `existing` dropped the `variant` the previous manifest
+        // had recorded, so the next run re-guessed a known original as a preview and
+        // this guard waved it through. A heuristic may decide whether a re-fetch is
+        // worth attempting; it must never be what authorises a downgrade.
+        mayReplaceExisting(existing, variant) {
+            if (!existing?.usable) return true;
+            return variant === 'original';
+        },
+        // What a previous manifest already established about this exact hash. Losing
+        // it is what broke monotonicity across runs: a known fact must not decay back
+        // into null just because this run had nothing to do.
+        inheritRecordedProvenance(entry, previousManifest) {
+            const recorded = previousManifest.find(entry, entry.sha256);
+            if (!recorded) return entry;
+            entry.variant = entry.variant ?? recorded.variant ?? null;
+            entry.originalError = entry.originalError ?? recorded.originalError ?? null;
+            return entry;
         },
         collectConversationAttachments(historyData) {
             const { nodes } = ClaudeAPI.buildConversationTree(historyData.chat_messages);
@@ -2821,6 +2980,8 @@
         async exportAttachmentsForConversation(historyData, exportDirHandle, statusCallback) {
             const allAttachments = this.collectConversationAttachments(historyData);
             const entries = [];
+            // What a previous run already established about these files. Read once.
+            const previousManifest = await this.readPreviousManifest(exportDirHandle);
             const orgInfo = allAttachments.length > 0 ? await ClaudeAPI.getOrganizationInfo() : null;
             if (allAttachments.length > 0) {
                 if (!orgInfo) throw new Error(t('export.cannotGetOrgInfo'));
@@ -2883,15 +3044,20 @@
                     continue;
                 }
 
+                let existing = null;
                 try {
-                    const existing = await this.inspectExistingAttachment(exportDirHandle, fileName);
-                    if (existing?.usable) {
+                    existing = await this.inspectExistingAttachment(exportDirHandle, fileName, entry.expectedSize);
+                    if (existing?.usable && !(await this.existingCopyIsDowngraded(existing, previousManifest, entry))) {
                         entry.status = 'existing';
                         await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                        this.inheritRecordedProvenance(entry, previousManifest);
+                        previousManifest.remember(entry);
                         statusCallback(t('export.skipExistingFile', 'export.skipExistingFile', i + 1, allAttachments.length, fileName), 'info');
                         continue;
                     }
-                    if (existing) {
+                    if (existing?.usable) {
+                        console.warn(`${LOG_PREFIX} 本地副本疑似 preview 降级，尝试回源取原图 ${fileName}`);
+                    } else if (existing) {
                         console.warn(`${LOG_PREFIX} 本地副本不可用，将重新下载 ${fileName}: ${existing.reason}`);
                     }
                 } catch (error) {
@@ -2911,15 +3077,28 @@
                     } else {
                         const candidates = this.conversationFileUrls(file, orgInfo.uuid);
                         if (candidates.length === 0) throw new Error(t('export.noDownloadUrl'));
-                        const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType);
+                        const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType, entry.expectedSize);
                         fileContent = downloaded.blob;
                         sniffedType = downloaded.sniffedType;
                         entry.variant = downloaded.variant;
                         if (downloaded.skipped.length) entry.originalError = downloaded.skipped.join(' | ');
+                        if (!this.mayReplaceExisting(existing, downloaded.variant)) {
+                            entry.status = 'existing';
+                            entry.variant = null;
+                            entry.originalError = [entry.originalError,
+                                `kept the existing local copy rather than overwrite it with a ${downloaded.variant}`]
+                                .filter(Boolean).join(' | ');
+                            await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                            this.inheritRecordedProvenance(entry, previousManifest);
+                                previousManifest.remember(entry);
+                            console.warn(`${LOG_PREFIX} 只拿到 ${downloaded.variant}，保留本地已有副本 ${fileName}`);
+                            continue;
+                        }
                     }
                     await this.writeFileToDirectory(exportDirHandle, fileName, fileContent);
                     entry.status = 'downloaded';
                     await this.recordAttachmentBytes(entry, fileContent, sniffedType);
+                    previousManifest.remember(entry);
                 } catch (err) {
                     const gone = err?.status === 403 || err?.status === 404 || err?.status === 410;
                     entry.status = gone ? 'unavailable' : 'failed';

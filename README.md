@@ -48,9 +48,41 @@ It exists because of what it found. **Measured 2026-09-11 against the live API**
 `/api/organizations/<org>/files/<uuid>/contents` answers the source JPEG — and the
 downloader tried `preview_url` first. In an existing archive, **245 of 246 images
 were WebP previews wearing `.png`/`.jpeg` names**, with nothing on disk saying so.
-Original bytes are now preferred, a preview is a labelled last resort, and a local
-copy whose bytes contradict its name is replaced rather than skipped — so re-running
-an export over an old archive repairs it.
+Original bytes are now preferred and a preview is a labelled last resort.
+
+Re-running an export is **monotonic**: it can improve what is on disk, never degrade
+it. That rule had to be learned. An earlier version treated "the bytes disagree with
+the extension" as proof of a bad file — but measured 2026-09-12, Claude itself serves
+originals that way: two files in a real export are `.png` by name and genuine JPEG by
+content, fetched straight from `/contents` and recorded as `variant: original`.
+Discarding those would have re-downloaded a perfect file and, once its source blob
+expired, replaced it with a preview.
+
+So a mismatch between name and bytes is now **recorded, not acted on**. Two separate
+decisions do the work, and keeping them separate is the point:
+
+- *Is a re-fetch worth attempting?* A guess is allowed here. A previous manifest that
+  recorded **this attachment** as a preview, or WebP bytes under a name that does not
+  say `.webp` — the fingerprint of the old bug — are enough to go and ask for the
+  original.
+- *May the result replace what is on disk?* No guessing. **Only an original may take
+  the place of a file that is already usable.** A preview, or Claude Code's inline
+  fallback, lands only where there is nothing usable to lose.
+
+An earlier attempt let the second decision consult the bytes too — a preview could
+overwrite anything that looked like WebP. That held for exactly one run: accepting a
+file as `existing` dropped the `variant` the previous manifest had recorded, so the
+next run re-guessed a known original as a preview and the guard waved it through.
+Accepting an existing file now inherits what the previous manifest already recorded
+for that attachment, and `tests/monotonic-across-runs.test.cjs` runs the export twice
+over the same directory to keep it that way.
+
+That lookup goes by **identity, not by hash**: `fileId`, then `key`, then the local
+file name. The hash only confirms that the record found still describes the bytes on
+disk. Identical bytes get referenced by different attachments all the time — one real
+export has 20 distinct fileIds sharing a single sha256 — so keying previous records by
+hash lets the last one win and write another attachment's history into this one. `variant`
+describes how *this reference* was obtained; it is not a property of the bytes.
 
 A download is also no longer trusted just because it returned 200. Claude answers a
 missing file with `{"type":"error","error":{"type":"not_found_error",…}}`, and a CDN
@@ -58,6 +90,18 @@ can answer with an XML error document; either is recorded as a failure with the
 server's own message instead of being saved as the attachment. A JSON attachment or
 an HTML artifact is unaffected: what the provider declares as a document is taken at
 its word.
+
+### Tests
+
+```bash
+node tests/run.cjs
+```
+
+No dependencies and no framework — the suite pulls the real functions out of
+`ClaudePowerestManager&Enhancer.user.js` by name and runs them against stubbed
+directory handles and a stubbed API, so it exercises the file that actually ships
+rather than a transcription of it. It covers the payload guard, the re-run safety
+rules above, the per-candidate retry, and size verification.
 
 ### 4. Claude Artifact HTML downloader (standalone script)
 
