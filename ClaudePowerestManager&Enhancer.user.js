@@ -4659,8 +4659,27 @@
         toastTimer: null,
         isExporting: false,
 
+        // claude.ai renamed this control, and the export entry silently stopped being
+        // injected. Measured 2026-09-11 on a session page: the trigger used to be
+        // `aria-label="Session actions"` carrying a permanent `aria-controls`; it is
+        // now `aria-label="More options for <session title>"`, and `aria-controls`
+        // exists only while the menu is open. The old selector matched nothing on
+        // both counts.
+        //
+        // So identify it by what it is rather than by what it is called: the only
+        // popup-menu trigger inside <main>. The 38 identically-labelled buttons on
+        // the same page are all sidebar rows, every one of them inside the nav.
+        sessionActionsButton() {
+            const inHeader = button => button.closest('main') && !button.closest('nav, aside, [role="navigation"]');
+            const triggers = Array.from(document.querySelectorAll('button[aria-haspopup="menu"]')).filter(inHeader);
+            return triggers.find(button => {
+                const label = button.getAttribute('aria-label') || '';
+                return label.startsWith('Session actions') || label.startsWith('More options');
+            }) ?? triggers[0] ?? null;
+        },
+
         getSessionActionsMenu() {
-            const button = document.querySelector('button[aria-label="Session actions"][aria-controls]');
+            const button = this.sessionActionsButton();
             const menuId = button?.getAttribute('aria-controls');
             const menu = menuId ? document.getElementById(menuId) : null;
             return menu?.getAttribute('role') === 'menu' ? menu : null;
@@ -4726,7 +4745,8 @@
         },
 
         closeMenu() {
-            document.querySelector('button[aria-label="Session actions"][aria-expanded="true"]')?.click();
+            const button = this.sessionActionsButton();
+            if (button?.getAttribute('aria-expanded') === 'true') button.click();
         },
 
         showToast(message, type = 'info', timeout = 4000) {
