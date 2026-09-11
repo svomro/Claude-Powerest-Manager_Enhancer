@@ -4724,7 +4724,16 @@
             item.removeAttribute('aria-haspopup');
             item.removeAttribute('aria-expanded');
             item.innerHTML = `
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="shrink-0" style="width: var(--class-base-icon); height: var(--class-base-icon);">
+                <!-- Sized three ways on purpose. The variable this used to rely on,
+                     --class-base-icon, is claude.ai's own and no longer resolves to
+                     anything (measured 2026-09-11: empty on :root and on the item).
+                     That left the icon with no CSS size at all, so it stretched to
+                     fill the flex row -- and because the label beside it is truncate
+                     inside min-w-0, the text then collapsed to zero width: a giant
+                     arrow and no words. The width/height attributes hold even with no
+                     CSS, the var() fallback covers the variable being gone, and
+                     flex:none stops a flex parent from stretching it back. -->
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="shrink-0" width="16" height="16" style="width: var(--class-base-icon, 1rem); height: var(--class-base-icon, 1rem); flex: none;">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"></path>
                 </svg>
                 <span class="flex min-w-0 flex-col py-p3">
