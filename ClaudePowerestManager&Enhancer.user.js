@@ -2587,6 +2587,7 @@
                     mimeType: attachment.image?.mimeType || extensionMediaType(fileName) || null,
                     detectedMediaType: null,
                     mediaTypeMismatch: null,
+                    originalError: null,
                     expectedSize: null,
                     actualSize: null,
                     sha256: null,
@@ -2632,6 +2633,7 @@
                             content = downloaded.blob;
                             sniffedType = downloaded.sniffedType;
                             entry.variant = downloaded.variant;
+                            if (downloaded.skipped.length) entry.originalError = downloaded.skipped.join(' | ');
                         } catch (error) {
                             // The message still carries the image inline; that copy is
                             // the attachment too, and the manifest says which one landed.
@@ -2640,7 +2642,7 @@
                             fileName = this.buildCodeAttachmentFileName(fileName.replace(/_\[[^\]]+\](?=\.[^.]+$|$)/, ''), attachment.fileUuid, extension);
                             entry.localFile = fileName;
                             entry.variant = 'inline-fallback';
-                            entry.error = `Remote download failed, kept the inline copy: ${error.message}`;
+                            entry.originalError = `remote: ${error.message}`;
                             content = this.inlineImageToBlob(attachment.inlineFallback);
                             sniffedType = (await inspectBlob(content)).sniffedType;
                         }
@@ -2742,15 +2744,20 @@
         // can answer 200 with an XML error document.
         async fetchAttachmentBlob(candidates, declaredMimeType) {
             let lastError = null;
+            // Why the earlier candidates were passed over. Without this, "the server
+            // no longer has the original" and "we asked for it wrongly" produce the
+            // same manifest entry: a preview, and no explanation.
+            const skipped = [];
             for (const candidate of candidates) {
                 try {
                     const blob = await ClaudeAPI.downloadFile(candidate.url);
                     const inspected = await inspectBlob(blob);
                     const problem = describeErrorPayload({ declaredMimeType, head: inspected.text });
                     if (problem) throw new Error(`Download did not return the attachment: ${problem}`);
-                    return { blob, sniffedType: inspected.sniffedType, variant: candidate.variant };
+                    return { blob, sniffedType: inspected.sniffedType, variant: candidate.variant, skipped };
                 } catch (error) {
                     lastError = error;
+                    skipped.push(`${candidate.variant}: ${error.message}`);
                 }
             }
             throw lastError || new Error(t('export.noDownloadUrl'));
@@ -2862,6 +2869,7 @@
                     mimeType: file.mime_type || extensionMediaType(file.file_name) || null,
                     detectedMediaType: null,
                     mediaTypeMismatch: null,
+                    originalError: null,
                     expectedSize: typeof file.file_size === 'number' ? file.file_size : null,
                     actualSize: null,
                     sha256: null,
@@ -2907,6 +2915,7 @@
                         fileContent = downloaded.blob;
                         sniffedType = downloaded.sniffedType;
                         entry.variant = downloaded.variant;
+                        if (downloaded.skipped.length) entry.originalError = downloaded.skipped.join(' | ');
                     }
                     await this.writeFileToDirectory(exportDirHandle, fileName, fileContent);
                     entry.status = 'downloaded';
