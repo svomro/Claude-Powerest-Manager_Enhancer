@@ -35,7 +35,31 @@ On a Claude Code session page (`claude.ai/code/session_...`), open the **Session
 -   You can drop in the session folder, the `session_*.json` inside it, or a parent directory (it searches downwards, and lists the candidates when there is more than one). Paths containing spaces, brackets, `&` or CJK characters are handled correctly.
 -   The generated page has four layers — "site view", "message audit", "all events" and "attachments" — so you can read it like the real site while still being able to verify every raw record.
 
-### 3. Claude Artifact HTML downloader (standalone script)
+### 3. Attachment manifest, and the bytes actually being the attachment
+
+Every export folder now carries an `attachments-manifest.json`: one entry per
+reference, with its status, the message it came from, its size, its SHA-256, and —
+the field that matters most — `detectedMediaType`, read from the file's own leading
+bytes rather than from its name. The manifest names itself the same way the JSON
+exports do (`exporter`, `exporter_version`, `artifact_role: attachment_manifest`).
+
+It exists because of what it found. **Measured 2026-09-11 against the live API**:
+`preview_url` answers a re-encoded WebP roughly half the size of the original, while
+`/api/organizations/<org>/files/<uuid>/contents` answers the source JPEG — and the
+downloader tried `preview_url` first. In an existing archive, **245 of 246 images
+were WebP previews wearing `.png`/`.jpeg` names**, with nothing on disk saying so.
+Original bytes are now preferred, a preview is a labelled last resort, and a local
+copy whose bytes contradict its name is replaced rather than skipped — so re-running
+an export over an old archive repairs it.
+
+A download is also no longer trusted just because it returned 200. Claude answers a
+missing file with `{"type":"error","error":{"type":"not_found_error",…}}`, and a CDN
+can answer with an XML error document; either is recorded as a failure with the
+server's own message instead of being saved as the attachment. A JSON attachment or
+an HTML artifact is unaffected: what the provider declares as a document is taken at
+its word.
+
+### 4. Claude Artifact HTML downloader (standalone script)
 
 `ClaudeArtifactHTMLDownloader.user.js` — injects a "Download HTML" button in the bottom-right of an Artifact page, picking the most faithful way to save it based on the artifact's type:
 
@@ -49,11 +73,11 @@ On a Claude Code session page (`claude.ai/code/session_...`), open the **Session
 -   Ships mappings for `lucide-react`, `recharts`, `d3`, `lodash`, `papaparse`, `three`, `mathjs` and `tone`; a dependency that cannot be inlined is reported explicitly rather than leaving you with a blank page after download.
 -   Web fonts pulled in by the artifact's own source (Google Fonts, typically) are **not** inlined: CJK families are split into hundreds of unicode-range subsets, and one ordinary artifact measured ~12MB of extra weight. Offline, the font falls back to a system serif; nothing else is affected.
 
-### 4. Model alias menu (standalone script, experimental)
+### 5. Model alias menu (standalone script, experimental)
 
 `ClaudeModelAliasMenu.user.js` — appends manually specified model id rows under Claude's "More models" submenu.
 
-### 5. Fixes
+### 6. Fixes
 
 -   **Stack overflow on long sessions**: conversation-tree building and export used recursive traversal, which threw `Maximum call stack size exceeded` on very long sessions. Rewritten as iteration over an explicit stack.
 -   **Manager button in the way**: the bottom-right Manager button is no longer rendered on Claude Code session pages or standalone Artifact pages — neither has a conversation list to manage, and it overlapped the Artifact download button.

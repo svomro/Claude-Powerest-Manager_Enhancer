@@ -52,6 +52,187 @@
         return { ...data, _archive_export: archiveExportInfo(artifactRole, sourceSchema) };
     }
 
+    // ---------------------------------------------------------------------------
+    // Attachment manifest
+    //
+    // Attachments used to land on disk with nothing recording what they were: which
+    // reference they came from, whether the download succeeded, whether the bytes are
+    // even the file. Measured on 2026-09-11 against an existing archive, that is not
+    // theoretical -- 245 of 246 archived images were WebP previews wearing .png/.jpeg
+    // names, and nothing on disk said so. The manifest is what makes that visible.
+    // ---------------------------------------------------------------------------
+
+    const ATTACHMENT_MANIFEST_VERSION = 1;
+    const MANIFEST_FILE_NAME = 'attachments-manifest.json';
+    const SNIFF_BYTES = 4096;
+
+    // Leading bytes are the only thing that actually says what a file is. The
+    // declared name lies (a WebP called .jpeg), and `/contents` sends no
+    // content-type at all.
+    const FILE_SIGNATURES = [
+        { type: 'image/jpeg', bytes: [0xFF, 0xD8, 0xFF] },
+        { type: 'image/png', bytes: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] },
+        { type: 'image/gif', bytes: [0x47, 0x49, 0x46, 0x38] },
+        { type: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] },
+        { type: 'application/zip', bytes: [0x50, 0x4B, 0x03, 0x04] },
+        { type: 'image/heic', bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }
+    ];
+
+    function sniffMediaType(bytes) {
+        if (!bytes || bytes.length < 4) return null;
+        if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+            && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+            return 'image/webp';
+        }
+        for (const signature of FILE_SIGNATURES) {
+            const offset = signature.offset || 0;
+            if (signature.bytes.every((byte, index) => bytes[offset + index] === byte)) return signature.type;
+        }
+        return null;
+    }
+
+    function extensionMediaType(fileName) {
+        const extension = String(fileName || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+        return {
+            jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+            webp: 'image/webp', heic: 'image/heic', pdf: 'application/pdf',
+            txt: 'text/plain', md: 'text/markdown', json: 'application/json',
+            csv: 'text/csv', html: 'text/html', svg: 'image/svg+xml', zip: 'application/zip'
+        }[extension] || null;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Payload guard -- same contract as the chatgpt-archive exporter.
+    //
+    // A 200 is not proof that the bytes are the attachment. Reject on two grounds
+    // only: the declared type is binary media and the body decodes as a structured
+    // text document, or the body is a recognised provider/storage error envelope and
+    // nothing declared the attachment to be a document. A JSON attachment or an HTML
+    // artifact stays downloadable.
+    // ---------------------------------------------------------------------------
+
+    const BINARY_APPLICATION_TYPES = new Set([
+        'application/pdf', 'application/zip', 'application/gzip', 'application/x-gzip',
+        'application/x-tar', 'application/x-7z-compressed', 'application/epub+zip',
+        'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ]);
+
+    function baseMediaType(value) {
+        return String(value || '').split(';', 1)[0].trim().toLowerCase();
+    }
+
+    function binaryMediaType(value) {
+        const type = baseMediaType(value);
+        if (!type || type === 'image/svg+xml') return null;
+        if (/^(?:image|video|audio|font)\//.test(type)) return type;
+        return BINARY_APPLICATION_TYPES.has(type) ? type : null;
+    }
+
+    function documentMediaType(value) {
+        const type = baseMediaType(value);
+        if (!type) return false;
+        return type.startsWith('text/')
+            || type === 'image/svg+xml'
+            || /\/(?:json|xml|javascript)$/.test(type)
+            || /\+(?:json|xml)$/.test(type);
+    }
+
+    function looksBinary(text) {
+        for (let index = 0; index < text.length; index++) {
+            const code = text.charCodeAt(index);
+            if (code === 0xFFFD) return true;
+            if (code < 0x20 && (code < 0x09 || code > 0x0D)) return true;
+        }
+        return false;
+    }
+
+    // Claude's own refusal, measured: 404 with
+    // {"type":"error","error":{"type":"not_found_error","message":"Missing files"},...}
+    // Also the storage document Azure/S3/GCS answer with, in case a CDN URL is in play.
+    function knownErrorEnvelope(text) {
+        const markup = text.replace(/^<\?xml[^>]*\?>\s*/i, '');
+        if (/^<Error[\s>]/i.test(markup)) {
+            const code = markup.match(/<Code>([\s\S]{0,200}?)<\/Code>/i)?.[1]?.trim();
+            const message = markup.match(/<Message>([\s\S]{0,400}?)<\/Message>/i)?.[1]?.trim();
+            if (code || message) return `storage error response: ${[code, message].filter(Boolean).join(': ')}`;
+            return null;
+        }
+        if (!text.startsWith('{')) return null;
+        let payload;
+        try { payload = JSON.parse(text); } catch { return null; }
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+        if (payload.type === 'error' && payload.error && typeof payload.error === 'object') {
+            const detail = [payload.error.type, payload.error.message].filter(Boolean).join(': ');
+            return `provider error response: ${detail || 'type=error'}`;
+        }
+        if (typeof payload.detail === 'string' && Object.keys(payload).length === 1) {
+            return `provider error response: ${payload.detail}`;
+        }
+        return null;
+    }
+
+    function describeErrorPayload(input) {
+        const text = String(input.head || '').replace(/^\uFEFF/, '').trimStart();
+        if (!text || looksBinary(text)) return null;
+        const shape = text.startsWith('<') ? 'markup' : (text.startsWith('{') || text.startsWith('[')) ? 'json' : null;
+        if (!shape) return null;
+        if (documentMediaType(input.declaredMimeType)) return null;
+
+        const envelope = knownErrorEnvelope(text);
+        if (envelope) return envelope;
+
+        const declaredBinary = binaryMediaType(input.declaredMimeType)
+            || (baseMediaType(input.declaredMimeType) ? null : binaryMediaType(input.responseContentType));
+        if (!declaredBinary) return null;
+        const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 200);
+        return `declared ${declaredBinary} but the body is ${shape === 'json' ? 'JSON' : 'markup'} text: ${snippet}`;
+    }
+
+    async function inspectBlob(blob) {
+        const head = await blob.slice(0, SNIFF_BYTES).arrayBuffer();
+        const bytes = new Uint8Array(head);
+        return {
+            // `stream: true` drops a multi-byte character the slice cut in half rather
+            // than turning it into U+FFFD, which would read as "these bytes are binary".
+            text: new TextDecoder('utf-8').decode(bytes, { stream: true }),
+            sniffedType: sniffMediaType(bytes)
+        };
+    }
+
+    async function sha256Hex(blob) {
+        if (!globalThis.crypto?.subtle) return null;
+        const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+        return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
+    }
+
+    function buildAttachmentManifest(ownerId, entries) {
+        const count = status => entries.filter(entry => entry.status === status).length;
+        const failed = count('failed');
+        const unresolved = count('unresolved');
+        return {
+            exporter: EXPORTER_NAME,
+            exporter_version: SCRIPT_VERSION,
+            artifact_role: 'attachment_manifest',
+            // This manifest's own schema version, nothing to do with the script version.
+            version: ATTACHMENT_MANIFEST_VERSION,
+            generatedAt: new Date().toISOString(),
+            conversationId: ownerId,
+            expected: entries.length,
+            downloaded: count('downloaded'),
+            existing: count('existing'),
+            failed,
+            unavailable: count('unavailable'),
+            unresolved,
+            // `unavailable` is the server saying the file is gone; nothing local can fix
+            // it, so it does not stop a run counting as complete. `failed` does.
+            complete: failed === 0 && unresolved === 0,
+            assets: entries
+        };
+    }
+
     // 全局HTML转义函数 - 统一的转义实现
     function escapeHTML(str) {
         if (!str) return '';
@@ -1125,7 +1306,14 @@
         },
         async downloadFile(url) {
             const response = await fetch(url);
-            if (!response.ok) throw new Error(t('api.fileDownloadFailed', 'api.fileDownloadFailed', response.status, url));
+            if (!response.ok) {
+                // The status is what tells "this file is gone" (403/404/410, nothing
+                // local can fix it) apart from a transport failure worth reporting as
+                // a failure. It used to be readable only inside a translated string.
+                const error = new Error(t('api.fileDownloadFailed', 'api.fileDownloadFailed', response.status, url));
+                error.status = response.status;
+                throw error;
+            }
             return response.blob();
         },
 
@@ -2289,10 +2477,14 @@
                     for (const file of candidates) {
                         if (!file || typeof file !== 'object') continue;
                         const fileUuid = typeof file.file_uuid === 'string' ? file.file_uuid : '';
-                        const downloadUrl = file.download_url || file.url || file.document_asset?.url || file.preview_url || '';
-                        if (!fileUuid && !downloadUrl) continue;
+                        // The preview is kept apart from the original on purpose: it
+                        // is a re-encoded, smaller image, and folding it in here is how
+                        // it used to win over the source bytes.
+                        const downloadUrl = file.download_url || file.url || file.document_asset?.url || '';
+                        const previewUrl = file.preview_url || '';
+                        if (!fileUuid && !downloadUrl && !previewUrl) continue;
 
-                        const key = fileUuid || `url:${downloadUrl}`;
+                        const key = fileUuid || `url:${downloadUrl || previewUrl}`;
                         if (!remoteByUuid.has(key)) {
                             const fileName = file.file_name || file.name || `attachment-${eventIndex + 1}`;
                             remoteByUuid.set(key, {
@@ -2300,6 +2492,7 @@
                                 key,
                                 fileUuid,
                                 downloadUrl,
+                                previewUrl,
                                 fileName: this.buildCodeAttachmentFileName(fileName, fileUuid || eventIndex + 1),
                                 isImage: file.is_image === true,
                                 inlineFallback: null
@@ -2374,48 +2567,102 @@
                 await writable.close();
             }
         },
-        async exportCodeSessionAttachments(exportData, exportDirHandle, orgUuid, statusCallback) {
+        async exportCodeSessionAttachments(exportData, exportDirHandle, orgUuid, statusCallback, sessionId) {
             const attachments = this.collectCodeSessionAttachments(exportData);
             const result = { total: attachments.length, downloaded: 0, skipped: 0, failed: 0 };
-            if (attachments.length === 0) return result;
+            const entries = [];
 
-            statusCallback(t('export.foundAttachments', 'export.foundAttachments', attachments.length), 'info');
+            if (attachments.length > 0) {
+                statusCallback(t('export.foundAttachments', 'export.foundAttachments', attachments.length), 'info');
+            }
             for (let i = 0; i < attachments.length; i++) {
                 const attachment = attachments[i];
                 let fileName = attachment.fileName;
+                const entry = {
+                    key: attachment.key,
+                    fileId: attachment.fileUuid || null,
+                    localFile: fileName,
+                    status: 'unresolved',
+                    variant: attachment.kind === 'inline' ? 'inline' : null,
+                    mimeType: attachment.image?.mimeType || extensionMediaType(fileName) || null,
+                    detectedMediaType: null,
+                    mediaTypeMismatch: null,
+                    expectedSize: null,
+                    actualSize: null,
+                    sha256: null,
+                    error: null,
+                    references: [{ kind: attachment.kind, isImage: attachment.isImage === true }]
+                };
+                entries.push(entry);
+
                 try {
-                    if (await this.fileExists(exportDirHandle, fileName)) {
+                    const existing = await this.inspectExistingAttachment(exportDirHandle, fileName);
+                    if (existing?.usable) {
                         result.skipped++;
+                        entry.status = 'existing';
+                        await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
                         statusCallback(t('export.skipExistingFile', 'export.skipExistingFile', i + 1, attachments.length, fileName), 'info');
                         continue;
+                    }
+                    if (existing) {
+                        console.warn(`${LOG_PREFIX} 本地副本不可用，将重新下载 ${fileName}: ${existing.reason}`);
                     }
 
                     statusCallback(t('export.downloading', 'export.downloading', i + 1, attachments.length, fileName), 'info');
                     let content;
+                    let sniffedType = null;
                     if (attachment.kind === 'inline') {
                         content = this.inlineImageToBlob(attachment.image);
+                        sniffedType = (await inspectBlob(content)).sniffedType;
                     } else {
-                        const downloadUrl = attachment.downloadUrl
-                            || (attachment.fileUuid ? `/api/organizations/${encodeURIComponent(orgUuid)}/files/${encodeURIComponent(attachment.fileUuid)}/contents` : '');
-                        if (!downloadUrl) throw new Error(t('export.noDownloadUrl'));
+                        const candidates = [];
+                        if (attachment.downloadUrl) candidates.push({ url: attachment.downloadUrl, variant: 'original' });
+                        if (attachment.fileUuid) {
+                            candidates.push({
+                                url: `/api/organizations/${encodeURIComponent(orgUuid)}/files/${encodeURIComponent(attachment.fileUuid)}/contents`,
+                                variant: 'original'
+                            });
+                        }
+                        // Last resort, and recorded as such: half-size re-encoded bytes
+                        // are better than no bytes, but they are not the attachment.
+                        if (attachment.previewUrl) candidates.push({ url: attachment.previewUrl, variant: 'preview' });
+                        if (candidates.length === 0 && !attachment.inlineFallback) throw new Error(t('export.noDownloadUrl'));
                         try {
-                            content = await ClaudeAPI.downloadFile(downloadUrl);
+                            const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType);
+                            content = downloaded.blob;
+                            sniffedType = downloaded.sniffedType;
+                            entry.variant = downloaded.variant;
                         } catch (error) {
+                            // The message still carries the image inline; that copy is
+                            // the attachment too, and the manifest says which one landed.
                             if (!attachment.inlineFallback) throw error;
                             const extension = this.getImageExtension(attachment.inlineFallback.mimeType);
                             fileName = this.buildCodeAttachmentFileName(fileName.replace(/_\[[^\]]+\](?=\.[^.]+$|$)/, ''), attachment.fileUuid, extension);
+                            entry.localFile = fileName;
+                            entry.variant = 'inline-fallback';
+                            entry.error = `Remote download failed, kept the inline copy: ${error.message}`;
                             content = this.inlineImageToBlob(attachment.inlineFallback);
+                            sniffedType = (await inspectBlob(content)).sniffedType;
                         }
                     }
 
                     await this.writeFileToDirectory(exportDirHandle, fileName, content);
                     result.downloaded++;
+                    entry.status = 'downloaded';
+                    await this.recordAttachmentBytes(entry, content, sniffedType);
                 } catch (error) {
                     result.failed++;
+                    const gone = error?.status === 403 || error?.status === 404 || error?.status === 410;
+                    entry.status = gone ? 'unavailable' : 'failed';
+                    entry.error = error.message;
                     console.error(`${LOG_PREFIX} 处理 Claude Code 附件 ${fileName} 失败:`, error);
                     statusCallback(t('export.processAttachmentFailed', 'export.processAttachmentFailed', fileName), 'error');
                 }
             }
+
+            const manifest = buildAttachmentManifest(sessionId || exportData?.session?.uuid || 'unknown-session', entries);
+            await this.writeFileToDirectory(exportDirHandle, MANIFEST_FILE_NAME, JSON.stringify(manifest, null, 2));
+            result.manifest = manifest;
             return result;
         },
         async performCodeSessionExport(sessionId, statusCallback = () => {}) {
@@ -2451,7 +2698,7 @@
                 fileName,
                 JSON.stringify(withExportProvenance(exportData, 'code_session_source', 'code_session_events'), null, 2)
             );
-            const attachments = await this.exportCodeSessionAttachments(exportData, exportDirHandle, orgInfo.uuid, statusCallback);
+            const attachments = await this.exportCodeSessionAttachments(exportData, exportDirHandle, orgInfo.uuid, statusCallback, sessionId);
 
             return {
                 cancelled: false,
@@ -2461,107 +2708,221 @@
                 attachments
             };
         },
-        async exportAttachmentsForConversation(historyData, exportDirHandle, statusCallback) {
-            const { nodes } = ClaudeAPI.buildConversationTree(historyData.chat_messages);
-            const allAttachments = [];
-            for (const node of Object.values(nodes)) {
-                (node.attachments || []).forEach(file => allAttachments.push({ type: 'text', content: file.extracted_content, ...file }));
-                (node.files || []).forEach(file => allAttachments.push({ type: 'binary', ...file }));
-                (node.files_v2 || []).forEach(file => allAttachments.push({ type: 'binary', ...file }));
+        // Candidate download URLs for one conversation attachment, best bytes first.
+        //
+        // Measured 2026-09-11 against the live API: `preview_url` answers a re-encoded
+        // WebP roughly half the size of the original (6 of 6 images sampled), while
+        // `/api/organizations/<org>/files/<uuid>/contents` answers the source JPEG and
+        // sends no content-type at all. This list used to try `preview_url` second,
+        // which is how 245 of the 246 images in an existing archive ended up being
+        // WebP previews wearing `.png`/`.jpeg` names, with nothing on disk saying so.
+        // The preview stays as a last resort; the manifest records when one was used.
+        conversationFileUrls(file, orgUuid) {
+            const candidates = [];
+            if (file.document_asset?.url) candidates.push({ url: file.document_asset.url, variant: 'original' });
+            if (orgUuid && file.file_uuid) {
+                candidates.push({
+                    url: `/api/organizations/${encodeURIComponent(orgUuid)}/files/${encodeURIComponent(file.file_uuid)}/contents`,
+                    variant: 'original'
+                });
             }
-
-            if (allAttachments.length > 0) {
-                statusCallback(t('export.foundAttachments', 'export.foundAttachments', allAttachments.length), 'info');
-                const orgInfo = await ClaudeAPI.getOrganizationInfo();
-                if (!orgInfo) throw new Error(t('export.cannotGetOrgInfo'));
-
-                for (let i = 0; i < allAttachments.length; i++) {
-                    const file = allAttachments[i];
-                    let fileName;
-
-                    // 双分割策略处理文件名
-                    let extensionForCheck; // 用于检查的部分 (最后一个点)
-                    let baseNameForRestore, extensionForRestore; // 用于还原的部分 (第一个点)
-
-                    if (file.file_name && file.file_name.includes('.')) {
-                        // 按最后一个点分割 - 用于检查扩展名类型
-                        const lastDotIndex = file.file_name.lastIndexOf('.');
-                        extensionForCheck = file.file_name.substring(lastDotIndex);
-
-                        // 按第一个点分割 - 用于还原完整扩展名
-                        const firstDotIndex = file.file_name.indexOf('.');
-                        baseNameForRestore = file.file_name.substring(0, firstDotIndex);
-                        extensionForRestore = file.file_name.substring(firstDotIndex);
-                    } else {
-                        // 没有扩展名的情况
-                        baseNameForRestore = file.file_name || 'unknown_file';
-                        extensionForCheck = extensionForRestore = '';
-                    }
-
-                    if (file.type === 'text') {
-                        // 统一使用第一个点分割的结果构造文件名
-                        fileName = `${baseNameForRestore}_[${file.id || 'no-id'}]${extensionForRestore}`;
-
-                        // 对于以下列表中的文件类型，添加.txt后缀
-                        if (extensionForCheck && (
-                            Config.ContentExtractorHandler.includes(extensionForCheck.toLowerCase()) ||
-                            Config.SpecialContent.includes(extensionForCheck.toLowerCase()) ||
-                            Config.PdfHandler.includes(extensionForCheck.toLowerCase()) ||
-                            Config.OutOfContentFileHandler.includes(extensionForCheck.toLowerCase())
-                        )) {
-                            fileName += '.txt';
-                        }
-                    } else if (file.type === 'binary' && file.file_uuid) {
-                        // 二进制文件使用第一个点分割的结果，保留完整扩展名
-                        fileName = `${baseNameForRestore}_[${file.file_uuid}]${extensionForRestore}`;
-                    }
-
-                    if (!fileName) continue;
-
-                    try {
-                        await exportDirHandle.getFileHandle(fileName, { create: false });
-                        statusCallback(t('export.skipExistingFile', 'export.skipExistingFile', i + 1, allAttachments.length, fileName), 'info');
-                        continue;
-                    } catch (error) {
-                        if (error.name !== 'NotFoundError') {
-                            console.error(t('error.checkingFile', 'error.checkingFile', fileName) + ':', error);
-                            statusCallback(t('status.checkingFile').replace('{0}', fileName), 'error');
-                            continue;
-                        }
-                    }
-
-                    statusCallback(t('export.downloading', 'export.downloading', i + 1, allAttachments.length, fileName), 'info');
-                    try {
-                        let fileContent;
-                        if (file.type === 'text') {
-                             fileContent = new Blob([file.content || ""], { type: 'text/plain;charset=utf-8' });
-                        } else {
-                            // 增强URL构造逻辑以支持blob类型
-                            let downloadUrl;
-                            if (file.document_asset?.url) { // 优先使用显式URL
-                                downloadUrl = file.document_asset.url;
-                            } else if (file.preview_url) { // 其次使用预览URL
-                                downloadUrl = file.preview_url;
-                            } else if (file.file_kind === 'blob' && orgInfo.uuid && file.file_uuid) { // **新增**: 处理 blob 类型
-                                downloadUrl = `/api/organizations/${orgInfo.uuid}/files/${file.file_uuid}/contents`;
-                            } else if (orgInfo.uuid && file.file_uuid && file.file_name) { // 回退到旧的文档格式
-                               const ext = file.file_name.includes('.') ? rsplit(file.file_name, '.', 1)[1] : '';
-                               downloadUrl = `/api/${orgInfo.uuid}/files/${file.file_uuid}/document_${ext.replace('.','')}/${file.file_name}`;
-                            }
-
-                            if(!downloadUrl) throw new Error(t('export.noDownloadUrl'));
-                            fileContent = await ClaudeAPI.downloadFile(downloadUrl);
-                        }
-                        const fileHandle = await exportDirHandle.getFileHandle(fileName, { create: true });
-                        const writable = await fileHandle.createWritable();
-                        await writable.write(fileContent);
-                        await writable.close();
-                    } catch (err) {
-                        console.error(`处理附件 ${fileName} 失败:`, err);
-                        statusCallback(t('export.processAttachmentFailed', 'export.processAttachmentFailed', fileName), 'error');
-                    }
+            if (orgUuid && file.file_uuid && file.file_name && file.file_kind !== 'blob') {
+                const ext = file.file_name.includes('.') ? rsplit(file.file_name, '.', 1)[1] : '';
+                candidates.push({
+                    url: `/api/${orgUuid}/files/${file.file_uuid}/document_${ext.replace('.', '')}/${file.file_name}`,
+                    variant: 'original'
+                });
+            }
+            if (file.preview_url) candidates.push({ url: file.preview_url, variant: 'preview' });
+            return candidates;
+        },
+        // Try each candidate until one answers with bytes that are actually the file.
+        // A 200 alone is not enough: the same endpoint answers 200 for the file and
+        // 404 with a JSON error envelope for a missing one, and a CDN in front of it
+        // can answer 200 with an XML error document.
+        async fetchAttachmentBlob(candidates, declaredMimeType) {
+            let lastError = null;
+            for (const candidate of candidates) {
+                try {
+                    const blob = await ClaudeAPI.downloadFile(candidate.url);
+                    const inspected = await inspectBlob(blob);
+                    const problem = describeErrorPayload({ declaredMimeType, head: inspected.text });
+                    if (problem) throw new Error(`Download did not return the attachment: ${problem}`);
+                    return { blob, sniffedType: inspected.sniffedType, variant: candidate.variant };
+                } catch (error) {
+                    lastError = error;
                 }
             }
+            throw lastError || new Error(t('export.noDownloadUrl'));
+        },
+        // What the bytes are, recorded next to what the name claims. This is the field
+        // that makes a preview-instead-of-original substitution visible.
+        async recordAttachmentBytes(entry, blob, sniffedType) {
+            entry.actualSize = blob.size;
+            entry.detectedMediaType = sniffedType || null;
+            entry.sha256 = await sha256Hex(blob);
+            const claimed = extensionMediaType(entry.localFile);
+            entry.mediaTypeMismatch = sniffedType && claimed && sniffedType !== claimed
+                ? `${claimed} by name, ${sniffedType} by content`
+                : null;
+            return entry;
+        },
+        // A local copy only counts as the attachment when its bytes do not contradict
+        // it. An archive written before the preview bug was found is full of files
+        // that do, and re-running the export should replace them rather than skip them.
+        async inspectExistingAttachment(directoryHandle, fileName) {
+            let file;
+            try {
+                const handle = await directoryHandle.getFileHandle(fileName, { create: false });
+                file = await handle.getFile();
+            } catch (error) {
+                if (error.name === 'NotFoundError') return null;
+                throw error;
+            }
+            if (file.size === 0) return { file, sniffedType: null, usable: false, reason: 'the local file is empty' };
+            const inspected = await inspectBlob(file);
+            const claimed = extensionMediaType(fileName);
+            const problem = describeErrorPayload({ declaredMimeType: claimed, head: inspected.text });
+            if (problem) return { file, sniffedType: inspected.sniffedType, usable: false, reason: problem };
+            if (inspected.sniffedType && claimed && inspected.sniffedType !== claimed) {
+                return {
+                    file,
+                    sniffedType: inspected.sniffedType,
+                    usable: false,
+                    reason: `the local file is ${inspected.sniffedType}, not the ${claimed} its name claims`
+                };
+            }
+            return { file, sniffedType: inspected.sniffedType, usable: true };
+        },
+        collectConversationAttachments(historyData) {
+            const { nodes } = ClaudeAPI.buildConversationTree(historyData.chat_messages);
+            const collected = [];
+            for (const node of Object.values(nodes)) {
+                const reference = { messageUuid: node.uuid || null, sender: node.sender || null };
+                (node.attachments || []).forEach(file => collected.push({
+                    type: 'text', reference: { ...reference, field: 'attachments' }, content: file.extracted_content, ...file
+                }));
+                (node.files || []).forEach(file => collected.push({
+                    type: 'binary', reference: { ...reference, field: 'files' }, ...file
+                }));
+                (node.files_v2 || []).forEach(file => collected.push({
+                    type: 'binary', reference: { ...reference, field: 'files_v2' }, ...file
+                }));
+            }
+            return collected;
+        },
+        async exportAttachmentsForConversation(historyData, exportDirHandle, statusCallback) {
+            const allAttachments = this.collectConversationAttachments(historyData);
+            const entries = [];
+            const orgInfo = allAttachments.length > 0 ? await ClaudeAPI.getOrganizationInfo() : null;
+            if (allAttachments.length > 0) {
+                if (!orgInfo) throw new Error(t('export.cannotGetOrgInfo'));
+                statusCallback(t('export.foundAttachments', 'export.foundAttachments', allAttachments.length), 'info');
+            }
+
+            for (let i = 0; i < allAttachments.length; i++) {
+                const file = allAttachments[i];
+
+                // 双分割策略处理文件名
+                let extensionForCheck; // 用于检查的部分 (最后一个点)
+                let baseNameForRestore, extensionForRestore; // 用于还原的部分 (第一个点)
+
+                if (file.file_name && file.file_name.includes('.')) {
+                    const lastDotIndex = file.file_name.lastIndexOf('.');
+                    extensionForCheck = file.file_name.substring(lastDotIndex);
+                    const firstDotIndex = file.file_name.indexOf('.');
+                    baseNameForRestore = file.file_name.substring(0, firstDotIndex);
+                    extensionForRestore = file.file_name.substring(firstDotIndex);
+                } else {
+                    baseNameForRestore = file.file_name || 'unknown_file';
+                    extensionForCheck = extensionForRestore = '';
+                }
+
+                let fileName;
+                if (file.type === 'text') {
+                    fileName = `${baseNameForRestore}_[${file.id || 'no-id'}]${extensionForRestore}`;
+                    if (extensionForCheck && (
+                        Config.ContentExtractorHandler.includes(extensionForCheck.toLowerCase()) ||
+                        Config.SpecialContent.includes(extensionForCheck.toLowerCase()) ||
+                        Config.PdfHandler.includes(extensionForCheck.toLowerCase()) ||
+                        Config.OutOfContentFileHandler.includes(extensionForCheck.toLowerCase())
+                    )) {
+                        fileName += '.txt';
+                    }
+                } else if (file.type === 'binary' && file.file_uuid) {
+                    fileName = `${baseNameForRestore}_[${file.file_uuid}]${extensionForRestore}`;
+                }
+
+                const entry = {
+                    key: file.file_uuid || file.id || `index:${i}`,
+                    fileId: file.file_uuid || file.id || null,
+                    localFile: fileName || null,
+                    status: 'unresolved',
+                    variant: file.type === 'text' ? 'extracted-text' : null,
+                    mimeType: file.mime_type || extensionMediaType(file.file_name) || null,
+                    detectedMediaType: null,
+                    mediaTypeMismatch: null,
+                    expectedSize: typeof file.file_size === 'number' ? file.file_size : null,
+                    actualSize: null,
+                    sha256: null,
+                    error: null,
+                    references: [file.reference]
+                };
+                entries.push(entry);
+
+                if (!fileName) {
+                    entry.error = 'No file name could be derived for this reference';
+                    continue;
+                }
+
+                try {
+                    const existing = await this.inspectExistingAttachment(exportDirHandle, fileName);
+                    if (existing?.usable) {
+                        entry.status = 'existing';
+                        await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                        statusCallback(t('export.skipExistingFile', 'export.skipExistingFile', i + 1, allAttachments.length, fileName), 'info');
+                        continue;
+                    }
+                    if (existing) {
+                        console.warn(`${LOG_PREFIX} 本地副本不可用，将重新下载 ${fileName}: ${existing.reason}`);
+                    }
+                } catch (error) {
+                    entry.status = 'failed';
+                    entry.error = `Checking the local copy failed: ${error.message}`;
+                    console.error(t('error.checkingFile', 'error.checkingFile', fileName) + ':', error);
+                    statusCallback(t('status.checkingFile').replace('{0}', fileName), 'error');
+                    continue;
+                }
+
+                statusCallback(t('export.downloading', 'export.downloading', i + 1, allAttachments.length, fileName), 'info');
+                try {
+                    let fileContent;
+                    let sniffedType = null;
+                    if (file.type === 'text') {
+                        fileContent = new Blob([file.content || ""], { type: 'text/plain;charset=utf-8' });
+                    } else {
+                        const candidates = this.conversationFileUrls(file, orgInfo.uuid);
+                        if (candidates.length === 0) throw new Error(t('export.noDownloadUrl'));
+                        const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType);
+                        fileContent = downloaded.blob;
+                        sniffedType = downloaded.sniffedType;
+                        entry.variant = downloaded.variant;
+                    }
+                    await this.writeFileToDirectory(exportDirHandle, fileName, fileContent);
+                    entry.status = 'downloaded';
+                    await this.recordAttachmentBytes(entry, fileContent, sniffedType);
+                } catch (err) {
+                    const gone = err?.status === 403 || err?.status === 404 || err?.status === 410;
+                    entry.status = gone ? 'unavailable' : 'failed';
+                    entry.error = err.message;
+                    console.error(`处理附件 ${fileName} 失败:`, err);
+                    statusCallback(t('export.processAttachmentFailed', 'export.processAttachmentFailed', fileName), 'error');
+                }
+            }
+
+            const manifest = buildAttachmentManifest(historyData.uuid || 'unknown-conversation', entries);
+            await this.writeFileToDirectory(exportDirHandle, MANIFEST_FILE_NAME, JSON.stringify(manifest, null, 2));
+            return manifest;
         },
         async performExportOriginal(convUuid, statusCallback) {
             if (typeof window.showDirectoryPicker !== 'function') throw new Error(t('error.browserNotSupported'));
