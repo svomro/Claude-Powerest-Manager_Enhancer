@@ -103,6 +103,25 @@ directory handles and a stubbed API, so it exercises the file that actually ship
 rather than a transcription of it. It covers the payload guard, the re-run safety
 rules above, the per-candidate retry, and size verification.
 
+### Auditing an export
+
+```bash
+node scripts/audit-export.mjs <export-directory>
+```
+
+Re-reads every `attachments-manifest.json` under the directory and checks what it
+says against what is on disk: every recorded `sha256` is recomputed from the file,
+each manifest's own summary counters are re-tallied from its `assets`, and anything
+that landed without a hash is reported. It prints the `status` × `variant` census,
+the problem conversations, and their ids one per line; it exits non-zero if anything
+needs looking at.
+
+The batch export panel keeps a run log of the same problems, but the two decide
+independently and on purpose — the log can only repeat what the manifest claims,
+while this reads the bytes. A 357-conversation export on 2026-09-12 had one
+attachment the server no longer holds reported as an ERROR by the log and a WARN
+here; the disagreement was the bug. Sharing one implementation would have hidden it.
+
 ### 4. Claude Artifact HTML downloader (standalone script)
 
 `ClaudeArtifactHTMLDownloader.user.js` — injects a "Download HTML" button in the bottom-right of an Artifact page, picking the most faithful way to save it based on the artifact's type:
