@@ -15,6 +15,13 @@ const api = new Function(...Object.keys(ctx),
     `${topLevelBlock()}\nreturn { formatAuditLogEntry, deriveManifestIssues };`)(...Object.values(ctx))
 
 const asset = o => ({ status: 'existing', variant: 'original', localFile: 'a.png', fileId: 'f1', error: null, originalError: null, ...o })
+// 服务器已经没有这份了的真实形状。照抄 2026-09-12 那次 357 个会话导出里唯一的
+// 那条：什么都没拿到，所以 variant/sha256/actualSize 全是 null。
+// 用 asset({ status: 'unavailable' }) 会从默认值继承 variant: 'original'——那是
+// 现实中不存在的组合，正是它让第一版的判定顺序 bug 从测试里溜了过去。
+const goneAsset = o => ({ status: 'unavailable', variant: null, localFile: 'gone.json', fileId: 'f9',
+    sha256: null, actualSize: null, originalError: null,
+    error: '文件下载失败: 404 at /api/organizations/org/files/f9/contents', ...o })
 const man = (...assets) => ({ conversationId: 'c1', assets })
 
 module.exports = async () => {
@@ -49,29 +56,41 @@ module.exports = async () => {
     // —— ERROR ——
     check('failed 记 ERROR', derive(man(asset({ status: 'failed', error: '404' }))).errors.length === 1)
     check('unresolved 记 ERROR', derive(man(asset({ status: 'unresolved' }))).errors.length === 1)
-    check('variant 为 null 记 ERROR（说不清来路等同于没拿到）',
+    check('落了盘却 variant 为 null 记 ERROR（existing）',
         derive(man(asset({ status: 'existing', variant: null }))).errors.length === 1)
+    check('落了盘却 variant 为 null 记 ERROR（downloaded）',
+        derive(man(asset({ status: 'downloaded', variant: null }))).errors.length === 1)
     check('variant 缺字段也按 null 算',
         derive(man({ status: 'existing', localFile: 'a.png' })).errors.length === 1)
+    check('没落盘就不问来路：unavailable 不因 variant 为 null 升级成 ERROR',
+        derive(man(goneAsset(), asset({ status: 'downloaded', variant: null }))).errors.length === 1,
+        JSON.stringify(derive(man(goneAsset(), asset({ status: 'downloaded', variant: null }))).errors))
     check('failed 优先于 variant 判定，不重复记两条',
         derive(man(asset({ status: 'failed', variant: null }))).errors.length === 1)
 
     // —— WARN ——
-    check('unavailable 记 WARN', derive(man(asset({ status: 'unavailable' }))).warnings.length === 1)
+    // 回归：unavailable 天然就是 variant: null，判定顺序一旦让 variant 那支在前，
+    // 每个 404 的附件都会被误报成 ERROR。真实导出里撞上过一次。
+    const gone = derive(man(goneAsset()))
+    check('unavailable 记 WARN 不是 ERROR', gone.warnings.length === 1 && gone.errors.length === 0,
+        JSON.stringify({ e: gone.errors, w: gone.warnings }))
+    check('unavailable 的 reason 是 unavailable，不是 variant-null', gone.warnings[0]?.reason === 'unavailable', JSON.stringify(gone.warnings[0]))
+    check('unavailable 把 404 详情带进 message', /404/.test(gone.warnings[0]?.message || ''))
+    check('unavailable 也带 localFile 便于定位', gone.warnings[0]?.localFile === 'gone.json')
     check('preview 记 WARN（拿到了但不是原件）',
         derive(man(asset({ status: 'existing', variant: 'preview' }))).warnings.length === 1)
     check('preview 带上 originalError 当 message',
-        derive(man(asset({ variant: 'preview', originalError: 'original: 404' }))).warnings[0].message === 'original: 404')
+        derive(man(asset({ variant: 'preview', originalError: 'original: 404' }))).warnings[0]?.message === 'original: 404')
 
     // —— 定位信息 ——
-    const e = derive(man(asset({ status: 'failed', localFile: 'x.png', fileId: 'fid', error: 'boom' }))).errors[0]
+    const e = derive(man(asset({ status: 'failed', localFile: 'x.png', fileId: 'fid', error: 'boom' }))).errors[0] || {}
     check('错误条目带 localFile', e.localFile === 'x.png')
     check('错误条目带 fileId', e.fileId === 'fid')
     check('错误条目带 message', e.message === 'boom')
     check('fileId 缺失时回落到 key',
-        derive(man({ status: 'failed', localFile: 'x', key: 'k1' })).errors[0].fileId === 'k1')
+        derive(man({ status: 'failed', localFile: 'x', key: 'k1' })).errors[0]?.fileId === 'k1')
     check('variant-null 没有 error 时给出可读理由',
-        derive(man(asset({ variant: null, error: null }))).errors[0].message === 'log.reason.variantNull')
+        derive(man(asset({ variant: null, error: null }))).errors[0]?.message === 'log.reason.variantNull')
 
     // —— 边角 ——
     check('manifest 为 null 不炸', derive(null).total === 0)
@@ -81,7 +100,7 @@ module.exports = async () => {
     // —— 混合计数 ——
     const mixed = derive(man(
         asset({ status: 'failed' }), asset({ variant: 'preview' }), asset({ variant: 'preview' }),
-        asset({ status: 'unavailable' }), asset({ status: 'existing', variant: 'original' })))
+        goneAsset(), asset({ status: 'existing', variant: 'original' })))
     check('混合：1 error / 3 warning / total 5',
         mixed.errors.length === 1 && mixed.warnings.length === 3 && mixed.total === 5,
         JSON.stringify({ e: mixed.errors.length, w: mixed.warnings.length, t: mixed.total }))

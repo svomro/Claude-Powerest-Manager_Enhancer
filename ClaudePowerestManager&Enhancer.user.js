@@ -251,9 +251,14 @@
         return lines.join('\n');
     }
 
-    // 什么算「有问题」。ERROR：这一份确实没拿到，或者拿到了但说不清来路——
-    // variant 为 null 意味着 manifest 无法回答「这是原件还是降级件」，和拿不到
-    // 一样致命。WARN：拿到了，但不是原件。
+    // 什么算「有问题」。ERROR：这一份确实没拿到，或者落了盘却说不清来路——
+    // variant 为 null 意味着 manifest 回答不了「这是原件还是降级件」，和拿不到
+    // 一样致命。WARN：服务器已经没有这份了，或者拿到了但不是原件。
+    //
+    // unavailable 必须排在 variant 判定之前。它天然就是 variant: null——什么都没
+    // 拿到，「怎么拿到的」根本不成其为问题。放在后面那一支会被截胡，永远不可达，
+    // 于是每个 404 的附件都被报成 ERROR。357 个会话那次真实导出就撞上了：一个
+    // 早就从服务器上消失的 JSON 附件被判成 ERROR，而它其实只是没了。
     //
     // 正常的 existing/downloaded 配 original/inline/extracted-text 一律不进日志。
     // 300 个会话逐条记流水的话，日志本身就成了要翻的东西。
@@ -262,12 +267,13 @@
         const errors = [], warnings = [];
         for (const asset of assets) {
             const where = { localFile: asset.localFile || null, fileId: asset.fileId || asset.key || null };
+            const landed = asset.status === 'existing' || asset.status === 'downloaded';
             if (asset.status === 'failed' || asset.status === 'unresolved') {
                 errors.push({ ...where, reason: asset.status, message: asset.error || asset.originalError || null });
-            } else if (asset.variant == null) {
-                errors.push({ ...where, reason: 'variant-null', message: asset.error || t('log.reason.variantNull') });
             } else if (asset.status === 'unavailable') {
                 warnings.push({ ...where, reason: 'unavailable', message: asset.error || asset.originalError || null });
+            } else if (landed && asset.variant == null) {
+                errors.push({ ...where, reason: 'variant-null', message: asset.error || t('log.reason.variantNull') });
             } else if (asset.variant === 'preview') {
                 warnings.push({ ...where, reason: 'preview', message: asset.originalError || null });
             }

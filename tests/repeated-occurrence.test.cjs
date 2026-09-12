@@ -75,6 +75,6 @@ module.exports = async function () {
         check('跨 message 的重复引用也各自入账', m.assets.length === 2, String(m.assets.length))
         check('两条 variant 一致为 original', m.assets.every(a => a.variant === 'original'),
             m.assets.map(a => `${a.status}/${a.variant}`).join(' '))
-        check('两条指向不同 message', m.assets[0].references[0].messageUuid !== m.assets[1].references[0].messageUuid)
+        check('两条指向不同 message', m.assets[0]?.references[0]?.messageUuid !== m.assets[1]?.references[0]?.messageUuid)
     }
 }

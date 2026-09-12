@@ -116,6 +116,6 @@ module.exports = async function () {
         const dir = memoryDirectory({ [NAME]: WEBP() })
         const { svc } = makeService({ contents: () => { const e = new Error('404'); e.status = 404; throw e }, preview: WEBP() })
         const m = await svc.exportAttachmentsForConversation(history(), dir, () => {})
-        check('preview 覆盖 preview 是允许的', ['downloaded', 'existing'].includes(m.assets[0].status), m.assets[0].status)
+        check('preview 覆盖 preview 是允许的', ['downloaded', 'existing'].includes(m.assets[0]?.status), m.assets[0]?.status)
     }
 }
