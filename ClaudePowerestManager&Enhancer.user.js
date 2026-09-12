@@ -236,6 +236,45 @@
         };
     }
 
+    // 日志条目的文本形态，和 chatgpt-archive 的 audit log 同一个格式：一行抬头
+    // 加缩进字段，多行值用 `|` 起一个块。统一格式是为了两边的日志能粘到同一个
+    // issue 里对照着看，不用先在脑子里转换一次。
+    function formatAuditLogEntry(entry) {
+        const lines = [`[${entry.timestamp}] ${entry.level} ${entry.event}`];
+        for (const [key, value] of Object.entries(entry.fields || {})) {
+            if (value === undefined) continue;
+            const values = (value === null ? 'null' : String(value)).replace(/\r\n?/g, '\n').split('\n');
+            if (values.length === 1) { lines.push(`  ${key}: ${values[0]}`); continue; }
+            lines.push(`  ${key}: |`);
+            for (const line of values) lines.push(`    ${line}`);
+        }
+        return lines.join('\n');
+    }
+
+    // 什么算「有问题」。ERROR：这一份确实没拿到，或者拿到了但说不清来路——
+    // variant 为 null 意味着 manifest 无法回答「这是原件还是降级件」，和拿不到
+    // 一样致命。WARN：拿到了，但不是原件。
+    //
+    // 正常的 existing/downloaded 配 original/inline/extracted-text 一律不进日志。
+    // 300 个会话逐条记流水的话，日志本身就成了要翻的东西。
+    function deriveManifestIssues(manifest) {
+        const assets = (manifest && manifest.assets) || [];
+        const errors = [], warnings = [];
+        for (const asset of assets) {
+            const where = { localFile: asset.localFile || null, fileId: asset.fileId || asset.key || null };
+            if (asset.status === 'failed' || asset.status === 'unresolved') {
+                errors.push({ ...where, reason: asset.status, message: asset.error || asset.originalError || null });
+            } else if (asset.variant == null) {
+                errors.push({ ...where, reason: 'variant-null', message: asset.error || t('log.reason.variantNull') });
+            } else if (asset.status === 'unavailable') {
+                warnings.push({ ...where, reason: 'unavailable', message: asset.error || asset.originalError || null });
+            } else if (asset.variant === 'preview') {
+                warnings.push({ ...where, reason: 'preview', message: asset.originalError || null });
+            }
+        }
+        return { errors, warnings, total: assets.length };
+    }
+
     // 全局HTML转义函数 - 统一的转义实现
     function escapeHTML(str) {
         if (!str) return '';
@@ -366,6 +405,16 @@
                 'toolbar.sort': '排序:',
                 'toolbar.filter': '筛选:',
                 'toolbar.searchPlaceholder': '搜索标题或 ID...',
+
+                // 运行日志
+                'log.title': '运行日志',
+                'log.empty': '尚未开始',
+                'log.clear': '清空',
+                'log.copy': '复制日志',
+                'log.copyIds': '复制问题 ID',
+                'log.copied': '已复制',
+                'log.problemCount': '{0} 个会话有问题',
+                'log.reason.variantNull': '没有记下这份是怎么拿到的',
 
                 // Batch operations detailed settings
                 'batchOps.starUnstar': '批量收藏/取消收藏',
@@ -629,6 +678,16 @@
                 'toolbar.sort': 'Sort:',
                 'toolbar.filter': 'Filter:',
                 'toolbar.searchPlaceholder': 'Search titles or ID...',
+
+                // Run log
+                'log.title': 'Run Log',
+                'log.empty': 'Not started',
+                'log.clear': 'Clear',
+                'log.copy': 'Copy Log',
+                'log.copyIds': 'Copy Problem IDs',
+                'log.copied': 'Copied',
+                'log.problemCount': '{0} conversations with issues',
+                'log.reason.variantNull': 'No record of how this copy was obtained',
 
                 // Batch operations detailed settings
                 'batchOps.starUnstar': 'Batch Star/Unstar',
@@ -3358,6 +3417,45 @@
     // =========================================================================
     // 7. 主管理器UI层 (ManagerUI)
     // =========================================================================
+    // 批量导出的运行日志。只在有问题时才长东西——一次 300 个会话的导出，全都
+    // 正常的话这里应该是空的。会话级汇总一条，附件级只有 ERROR 才逐条记：
+    // 几百个降级的 preview 逐条列出来，日志本身就成了要翻的东西。
+    const AuditLog = {
+        entries: [],
+        problemIds: [],
+        node(selector) { return document.querySelector('#cpm-main-panel ' + selector); },
+        append(event, fields = {}, level = 'INFO') {
+            this.entries.push(formatAuditLogEntry({ timestamp: new Date().toISOString(), level, event, fields }));
+            this.render();
+        },
+        noteProblem(uuid) { if (uuid && !this.problemIds.includes(uuid)) this.problemIds.push(uuid); },
+        reset() { this.entries = []; this.problemIds = []; this.render(); },
+        text() { return this.entries.join('\n\n'); },
+        idText() { return this.problemIds.join('\n'); },
+        render() {
+            const pre = this.node('.cpm-log'), panel = this.node('.cpm-log-panel');
+            if (!pre || !panel) return;
+            const empty = this.entries.length === 0;
+            panel.hidden = empty;
+            pre.textContent = empty ? t('log.empty') : this.text();
+            pre.scrollTop = pre.scrollHeight;
+            const ids = this.node('#cpm-copy-log-ids');
+            if (ids) ids.disabled = this.problemIds.length === 0;
+            const count = this.node('.cpm-log-count');
+            if (count) count.textContent = this.problemIds.length ? t('log.problemCount', 'log.problemCount', this.problemIds.length) : '';
+        },
+        async copyTo(button, text, label) {
+            if (!text) return;
+            try {
+                await navigator.clipboard.writeText(text);
+                button.textContent = t('log.copied');
+                setTimeout(() => { button.textContent = label; }, 1200);
+            } catch (error) {
+                this.append('log.copy.failed', { message: error.message }, 'WARN');
+            }
+        }
+    };
+
     const ManagerUI = {
         currentSort: 'updated_at_desc',
         currentFilter: 'all',
@@ -3503,6 +3601,16 @@
                 </div>
                 <div class="cpm-actions"><button class="cpm-action-btn" id="cpm-batch-star">${t('manager.batchStar')}</button><button class="cpm-action-btn" id="cpm-batch-unstar">${t('manager.batchUnstar')}</button><button class="cpm-action-btn" id="cpm-batch-rename">${t('manager.batchRename')}</button><button class="cpm-action-btn cpm-danger-btn" id="cpm-batch-delete">${t('manager.batchDelete')}</button><span style="flex-grow: 1;"></span><button class="cpm-icon-btn cpm-batch-export-btn" id="cpm-batch-export-original" title="${t('export.batchOriginal')}"><svg class="cpm-svg-icon" style="width:20px; height:20px;" stroke-width="1.5"><use href="#cpm-icon-batch-export-original"></use></svg></button><button class="cpm-icon-btn cpm-batch-export-btn" id="cpm-batch-export-custom" title="${t('export.batchCustom')}"><svg class="cpm-svg-icon" style="width:20px; height:20px;" stroke-width="1.5"><use href="#cpm-icon-batch-export-custom"></use></svg></button></div>
                 <div class="cpm-list-container"><p class="cpm-loading">${t('manager.refreshButtonTip')}</p></div>
+                <div class="cpm-log-panel" hidden>
+                    <div class="cpm-log-head">
+                        <strong>${t('log.title')}</strong><span class="cpm-log-count"></span>
+                        <span style="flex-grow: 1;"></span>
+                        <button class="cpm-btn" id="cpm-copy-log-ids" disabled>${t('log.copyIds')}</button>
+                        <button class="cpm-btn" id="cpm-copy-log">${t('log.copy')}</button>
+                        <button class="cpm-btn" id="cpm-clear-log">${t('log.clear')}</button>
+                    </div>
+                    <pre class="cpm-log" role="log" aria-live="polite"></pre>
+                </div>
                 <div class="cpm-status-bar">${t('manager.ready')}</div>`;
             document.body.appendChild(mainPanel);
 
@@ -3553,6 +3661,9 @@
             document.getElementById('cpm-batch-delete').onclick = () => this.handleBatchDelete();
             document.getElementById('cpm-batch-star').onclick = () => this.handleBatchStar(true);
             document.getElementById('cpm-batch-unstar').onclick = () => this.handleBatchStar(false);
+            document.getElementById('cpm-copy-log').onclick = (e) => AuditLog.copyTo(e.currentTarget, AuditLog.text(), t('log.copy'));
+            document.getElementById('cpm-copy-log-ids').onclick = (e) => AuditLog.copyTo(e.currentTarget, AuditLog.idText(), t('log.copyIds'));
+            document.getElementById('cpm-clear-log').onclick = () => AuditLog.reset();
             document.getElementById('cpm-batch-export-original').onclick = () => this.handleBatchExport('original');
             document.getElementById('cpm-batch-export-custom').onclick = () => this.handleBatchExport('custom');
             document.getElementById('cpm-save-settings-button').onclick = () => this.saveSettings();
@@ -3841,6 +3952,14 @@
                 throw err;
             }
 
+            await this.runBatchExport(uuids, rootDirHandle, 'original');
+        },
+        // 两条批量路径（original / custom）除了类型串完全一样，合成一份。日志只有
+        // 一个实现，不会出现「原始导出记了、自定义导出忘了记」这种事。
+        async runBatchExport(uuids, rootDirHandle, type) {
+            AuditLog.reset();
+            AuditLog.append('export.batch.start', { type, conversations: uuids.length });
+
             let successCount = 0;
             for (let i = 0; i < uuids.length; i++) {
                 const uuid = uuids[i];
@@ -3850,10 +3969,37 @@
                 this.updateStatus(t('export.exportingProgress', 'export.exportingProgress', i + 1, uuids.length, title), 'info');
 
                 try {
-                    await this.exportSingleConversation(uuid, rootDirHandle, 'original');
+                    const manifest = await this.exportSingleConversation(uuid, rootDirHandle, type);
                     successCount++;
+                    const issues = deriveManifestIssues(manifest);
+                    if (issues.errors.length || issues.warnings.length) {
+                        AuditLog.noteProblem(uuid);
+                        const tally = reason => issues.warnings.filter(w => w.reason === reason).length;
+                        AuditLog.append('export.conversation.issues', {
+                            conversationId: uuid,
+                            title,
+                            attachments: issues.total,
+                            errors: issues.errors.length,
+                            preview: tally('preview'),
+                            unavailable: tally('unavailable')
+                        }, issues.errors.length ? 'ERROR' : 'WARN');
+                        for (const issue of issues.errors) {
+                            AuditLog.append('export.attachment.issue', {
+                                conversationId: uuid,
+                                title,
+                                localFile: issue.localFile,
+                                fileId: issue.fileId,
+                                reason: issue.reason,
+                                message: issue.message
+                            }, 'ERROR');
+                        }
+                    }
                 } catch (error) {
                     console.error(t('export.sessionFailed', 'export.sessionFailed', uuid) + ':', error);
+                    AuditLog.noteProblem(uuid);
+                    AuditLog.append('export.conversation.failed', {
+                        conversationId: uuid, title, message: error.message
+                    }, 'ERROR');
                     this.updateStatus(t('export.exportFailed', 'export.exportFailed', i + 1, uuids.length, error.message), 'error');
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
@@ -3862,6 +4008,16 @@
                     await new Promise(resolve => setTimeout(resolve, 500));
                 }
             }
+
+            AuditLog.append('export.batch.complete', {
+                type,
+                conversations: uuids.length,
+                succeeded: successCount,
+                failed: uuids.length - successCount,
+                problemConversations: AuditLog.problemIds.length,
+                // 一行一个，方便整段粘走；旁边那个「复制问题 ID」按钮给的是没有缩进的同一份。
+                problemConversationIds: AuditLog.problemIds.length ? AuditLog.idText() : undefined
+            }, AuditLog.problemIds.length ? 'WARN' : 'INFO');
 
             this.updateStatus(t('export.batchComplete', 'export.batchComplete', successCount, uuids.length), 'success', 5000);
         },
@@ -3900,9 +4056,12 @@
             await writableHistory.write(JSON.stringify(dataToWrite, null, 2));
             await writableHistory.close();
 
+            // 批量路径丢掉了附件级的 statusCallback——状态栏一行装不下几百条。
+            // manifest 是结构化的，把它交回去，由批量循环决定什么该进日志。
             if (type === 'original' || (type === 'custom' && this.tempBatchExportSettings.attachments.mode !== 'none')) {
-                await ManagerService.exportAttachmentsForConversation(historyData, exportDirHandle, () => {});
+                return await ManagerService.exportAttachmentsForConversation(historyData, exportDirHandle, () => {});
             }
+            return null;
         },
         showBatchExportModal(uuids) {
             document.querySelector('.cpm-modal-overlay')?.remove();
@@ -3965,30 +4124,8 @@
                 throw err;
             }
 
-            let successCount = 0;
-            for (let i = 0; i < uuids.length; i++) {
-                const uuid = uuids[i];
-                const convo = ManagerService.conversationsCache.find(c => c.uuid === uuid);
-                const title = convo ? (convo.name || t('treeView.untitled')) : t('treeView.loading');
-
-                this.updateStatus(t('export.exportingProgress', 'export.exportingProgress', i + 1, uuids.length, title), 'info');
-
-                try {
-                    await this.exportSingleConversation(uuid, rootDirHandle, 'custom');
-                    successCount++;
-                } catch (error) {
-                    console.error(t('export.sessionFailed', 'export.sessionFailed', uuid) + ':', error);
-                    this.updateStatus(t('export.exportFailed', 'export.exportFailed', i + 1, uuids.length, error.message), 'error');
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                }
-
-                if (i < uuids.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-            }
-
+            await this.runBatchExport(uuids, rootDirHandle, 'custom');
             delete this.tempBatchExportSettings;
-            this.updateStatus(t('export.batchComplete').replace('{0}', successCount).replace('{1}', uuids.length), 'success', 5000);
         },
 
         createExportSettingsHTML(forSettingsPanel = false) {
@@ -5272,6 +5409,11 @@
         .cpm-status-bar { padding: 8px 20px; border-top: 1px solid hsl(var(--cpm-border-200)); font-size: 12px; color: hsl(var(--cpm-text-400)); text-align: right; flex-shrink: 0; transition: color 0.3s; }
         .cpm-status-bar.is-error { color: hsl(var(--cpm-danger-000)); }
         .cpm-status-bar.is-success { color: hsl(var(--cpm-success-000)); }
+        .cpm-log-panel { display: flex; flex-direction: column; border-top: 1px solid hsl(var(--cpm-border-200)); flex-shrink: 0; }
+        .cpm-log-head { display: flex; align-items: center; gap: 8px; padding: 6px 20px; font-size: 12px; color: hsl(var(--cpm-text-300)); }
+        .cpm-log-head .cpm-btn { padding: 2px 8px; font-size: 11px; }
+        .cpm-log-count { color: hsl(var(--cpm-danger-000)); font-size: 11px; }
+        .cpm-log { margin: 0; padding: 8px 20px 10px; max-height: 190px; overflow: auto; white-space: pre-wrap; word-break: break-word; user-select: text; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.5; color: hsl(var(--cpm-text-400)); background-color: hsl(var(--cpm-bg-200)); }
         .cpm-highlight { color: hsl(var(--cpm-accent-brand)); font-weight: bold; background-color: hsla(var(--cpm-accent-brand), 0.1); }
         .cpm-edit-input { width: 100%; background-color: hsl(var(--cpm-bg-200)); border: 1px solid hsl(var(--cpm-border-300)); border-radius: 4px; color: hsl(var(--cpm-text-100)); padding: 4px 8px; font-size: 15px; line-height: 1.5; box-sizing: border-box; }
         .cpm-edit-input:focus { outline: none; border-color: hsl(var(--cpm-accent-brand)); }
