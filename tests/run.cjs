@@ -17,7 +17,10 @@ global.check = (label, condition, detail = '') => {
         const suite = require(path.join(__dirname, name))
         process.stdout.write(`\n── ${name}\n`)
         const before = failed
-        await suite()
+        // 一个 suite 抛出去不能带塌整轮：剩下的文件就都不跑了，而崩溃看起来
+        // 「也算失败了」，很容易被当成测试有效。记成它自己的一条失败，继续往下。
+        try { await suite() }
+        catch (error) { check(`${name} 抛异常中断`, false, error && error.stack ? error.stack.split('\n').slice(0, 3).join(' | ') : String(error)) }
         process.stdout.write(before === failed ? '   全部通过\n' : `   ${failed - before} 条失败\n`)
     }
     console.log(`\n${passed} 通过 / ${failed} 失败`)

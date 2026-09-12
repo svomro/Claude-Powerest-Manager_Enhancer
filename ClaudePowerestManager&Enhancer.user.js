@@ -2819,9 +2819,22 @@
         // which is how 245 of the 246 images in an existing archive ended up being
         // WebP previews wearing `.png`/`.jpeg` names, with nothing on disk saying so.
         // The preview stays as a last resort; the manifest records when one was used.
-        conversationFileUrls(file, orgUuid) {
+        conversationFileUrls(file, orgUuid, conversationUuid) {
             const candidates = [];
             if (file.document_asset?.url) candidates.push({ url: file.document_asset.url, variant: 'original' });
+            // 沙盒上传（file_kind: blob，path 在 /mnt/user-data/uploads/ 下）根本不在
+            // /files/{uuid} 这个命名空间里——那条路对它永远 404，1.2.9 就是这么把一份
+            // 还好端端在服务器上的附件记成 unavailable 的。它按 path 存在会话自己的
+            // wiggle 空间里，而 history 的 files[] 里恰好带着那个 path。
+            //
+            // 排在 /contents 之前：对 blob 来说 /contents 是必然的一次 404，先问对地方。
+            if (file.file_kind === 'blob' && file.path && orgUuid && conversationUuid) {
+                candidates.push({
+                    url: `/api/organizations/${encodeURIComponent(orgUuid)}/conversations/${encodeURIComponent(conversationUuid)}`
+                        + `/wiggle/download-file?path=${encodeURIComponent(file.path)}`,
+                    variant: 'original'
+                });
+            }
             if (orgUuid && file.file_uuid) {
                 candidates.push({
                     url: `/api/organizations/${encodeURIComponent(orgUuid)}/files/${encodeURIComponent(file.file_uuid)}/contents`,
@@ -3096,7 +3109,10 @@
                     detectedMediaType: null,
                     mediaTypeMismatch: null,
                     originalError: null,
-                    expectedSize: typeof file.file_size === 'number' ? file.file_size : null,
+                    // blob 用 size_bytes，普通附件用 file_size。只认后者的话，
+                    // 沙盒上传的原件候选永远没有大小可校验。
+                    expectedSize: typeof file.file_size === 'number' ? file.file_size
+                        : (typeof file.size_bytes === 'number' ? file.size_bytes : null),
                     actualSize: null,
                     sha256: null,
                     error: null,
@@ -3140,7 +3156,7 @@
                     if (file.type === 'text') {
                         fileContent = new Blob([file.content || ""], { type: 'text/plain;charset=utf-8' });
                     } else {
-                        const candidates = this.conversationFileUrls(file, orgInfo.uuid);
+                        const candidates = this.conversationFileUrls(file, orgInfo.uuid, historyData.uuid);
                         if (candidates.length === 0) throw new Error(t('export.noDownloadUrl'));
                         const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType, entry.expectedSize);
                         fileContent = downloaded.blob;
