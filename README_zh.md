@@ -1,6 +1,6 @@
 # Claude Powerest Manager & Enhancer（个人 fork）
 
-[![版本](https://img.shields.io/badge/Version-1.2.10-blue.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer)
+[![版本](https://img.shields.io/badge/Version-1.2.11-blue.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer)
 [![Fork 自](https://img.shields.io/badge/Fork_of-f14XuanLv-lightgrey.svg)](https://github.com/f14XuanLv/Claude-Powerest-Manager_Enhancer)
 [![许可证](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/svomro/Claude-Powerest-Manager_Enhancer/blob/main/LICENSE)
 [![平台](https://img.shields.io/badge/Platform-Tampermonkey-yellow.svg)](https://www.tampermonkey.net/)
