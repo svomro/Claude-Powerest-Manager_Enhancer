@@ -2,7 +2,7 @@
 // @name         Claude Artifact HTML Downloader
 // @name:zh-CN   Claude Artifact HTML 下载器
 // @namespace    https://github.com/svomro/Claude-Powerest-Manager_Enhancer
-// @version      1.1.0
+// @version      1.1.1
 // @description  Download the exact HTML served for a Claude Artifact, with a DOM snapshot fallback. React (JSX) artifacts are compiled into a self-contained offline HTML file.
 // @description:zh-CN 下载 Claude Artifact 实际加载的 HTML；React (JSX) 类型会编译成完全离线可交互的单文件 HTML；其余情况保存当前 DOM 快照。
 // @author       svomro
@@ -10,6 +10,7 @@
 // @homepageURL  https://github.com/svomro/Claude-Powerest-Manager_Enhancer
 // @supportURL   https://github.com/svomro/Claude-Powerest-Manager_Enhancer/issues
 // @match        https://claude.ai/*
+// @match        https://claudeusercontent.com/*
 // @match        https://*.claudeusercontent.com/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=claude.ai
 // @grant        GM_addStyle
@@ -32,6 +33,7 @@
 
     const CODE_ARTIFACT_RE = /^\/code\/artifact\/([0-9a-f-]+)(?:\/|$)/i;
     const PUBLISHED_ARTIFACT_RE = /^\/public\/artifacts\/([0-9a-f-]+)(?:\/|$)/i;
+    const ARTIFACT_RE = /^\/artifact\/([^/?#]+)(?:\/|$)/i;
     const REACT_ARTIFACT_TYPE = 'application/vnd.ant.react';
 
     // 下载时用 Babel 把 JSX 编译掉，所以产物里只需要运行时，不需要再带 2.9MB 的 Babel。
@@ -54,9 +56,10 @@
         tone: { global: 'Tone', url: 'https://cdnjs.cloudflare.com/ajax/libs/tone/15.0.4/Tone.js' }
     };
 
+    const isClaudeusercontentHostname = (hostname) => hostname === 'claudeusercontent.com' || hostname.endsWith('.claudeusercontent.com');
     const isClaudeShell = () => location.hostname === 'claude.ai';
-    const isArtifactPage = () => CODE_ARTIFACT_RE.test(location.pathname) || PUBLISHED_ARTIFACT_RE.test(location.pathname);
-    const isArtifactFrame = () => location.hostname.endsWith('.claudeusercontent.com');
+    const isArtifactPage = () => ARTIFACT_RE.test(location.pathname) || CODE_ARTIFACT_RE.test(location.pathname) || PUBLISHED_ARTIFACT_RE.test(location.pathname);
+    const isArtifactFrame = () => isClaudeusercontentHostname(location.hostname);
 
     function serializeDoctype(doctype) {
         if (!doctype) return '<!doctype html>';
@@ -81,7 +84,7 @@
 
     function artifactIdFromPath() {
         const path = location.pathname;
-        return path.match(CODE_ARTIFACT_RE)?.[1] || path.match(PUBLISHED_ARTIFACT_RE)?.[1] || '';
+        return path.match(ARTIFACT_RE)?.[1] || path.match(CODE_ARTIFACT_RE)?.[1] || path.match(PUBLISHED_ARTIFACT_RE)?.[1] || '';
     }
 
     function publishedArtifactId() {
@@ -600,7 +603,9 @@ ${extraSources.map((library) => `<script>${escapeForScriptTag(library.source)}</
         }
 
         window.addEventListener('message', (event) => {
-            if (!event.origin.endsWith('.claudeusercontent.com')) return;
+            let originHostname = '';
+            try { originHostname = new URL(event.origin).hostname; } catch { return; }
+            if (!isClaudeusercontentHostname(originHostname)) return;
             const message = event.data;
             if (!message || message.namespace !== MESSAGE_NAMESPACE) return;
 
