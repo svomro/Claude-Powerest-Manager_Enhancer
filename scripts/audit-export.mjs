@@ -83,7 +83,12 @@ for (const manifestPath of manifests.sort()) {
 
         const [severity, reason] = classify(asset);
         if (severity === 'ERROR') issue.errors.push(`${reason} :: ${asset.localFile} :: ${asset.error ?? asset.originalError ?? ''}`);
-        else if (severity === 'WARN') issue.warnings.push(reason);
+        // preview 落了盘，没用上原件的理由在 originalError；unavailable 什么都没拿到，理由在 error。
+        else if (severity === 'WARN') issue.warnings.push({
+            reason,
+            localFile: asset.localFile,
+            why: (reason === 'preview' ? asset.originalError : asset.error ?? asset.originalError) ?? ''
+        });
 
         // 盘上核对
         if (asset.sha256 == null) {
@@ -102,7 +107,7 @@ for (const manifestPath of manifests.sort()) {
     if (issue.errors.length || issue.warnings.length) problems.push(issue);
 }
 
-const count = reason => problems.reduce((sum, p) => sum + p.warnings.filter(w => w === reason).length, 0);
+const count = reason => problems.reduce((sum, p) => sum + p.warnings.filter(w => w.reason === reason).length, 0);
 const errorTotal = problems.reduce((sum, p) => sum + p.errors.length, 0);
 
 console.log(`目录          ${root}`);
@@ -125,9 +130,17 @@ for (const [name, list] of RED) {
 }
 
 console.log(`\n问题会话 ${problems.length} 个（ERROR ${errorTotal} 条 / WARN ${count('preview') + count('unavailable')} 条：preview ${count('preview')}、unavailable ${count('unavailable')}）`);
+const WARN_SHOWN = 20;
 for (const p of problems) {
     console.log(`  [${p.errors.length ? 'ERROR' : 'WARN '}] ${p.id}  附件 ${p.total}，E=${p.errors.length} W=${p.warnings.length}  ${p.label.slice(0, 46)}`);
     for (const e of p.errors) console.log(`          ! ${e}`);
+    // 面板日志对 WARN 只给计数。「是哪几个、为什么」在这之前只能自己去翻 manifest。
+    for (const w of p.warnings.slice(0, WARN_SHOWN)) {
+        console.log(`          ~ ${w.reason} :: ${w.localFile}`);
+        // 被跳过的候选在 originalError 里用 ` | ` 连着，一个候选一行才看得清是哪条路断了。
+        for (const part of String(w.why).split(' | ').filter(Boolean)) console.log(`              ${part}`);
+    }
+    if (p.warnings.length > WARN_SHOWN) console.log(`          … 还有 ${p.warnings.length - WARN_SHOWN} 条 WARN`);
 }
 
 // 一行一个。和面板上「复制问题 ID」给的应当是同一组 id——顺序未必相同：

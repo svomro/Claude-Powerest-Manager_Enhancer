@@ -421,6 +421,7 @@
                 'log.copied': '已复制',
                 'log.problemCount': '{0} 个会话有问题',
                 'log.reason.variantNull': '没有记下这份是怎么拿到的',
+                'log.detailsHint': '逐条明细在每条 issues 的 manifest 里：variant 为 preview 的看 originalError（原件为什么没用上），status 为 unavailable 的看 error',
 
                 // Batch operations detailed settings
                 'batchOps.starUnstar': '批量收藏/取消收藏',
@@ -694,6 +695,7 @@
                 'log.copied': 'Copied',
                 'log.problemCount': '{0} conversations with issues',
                 'log.reason.variantNull': 'No record of how this copy was obtained',
+                'log.detailsHint': 'Per-attachment detail is in the manifest each issues entry names: for variant "preview" read originalError (why the original was not used); for status "unavailable" read error',
 
                 // Batch operations detailed settings
                 'batchOps.starUnstar': 'Batch Star/Unstar',
@@ -3441,7 +3443,8 @@
     // =========================================================================
     // 批量导出的运行日志。只在有问题时才长东西——一次 300 个会话的导出，全都
     // 正常的话这里应该是空的。会话级汇总一条，附件级只有 ERROR 才逐条记：
-    // 几百个降级的 preview 逐条列出来，日志本身就成了要翻的东西。
+    // 几百个降级的 preview 逐条列出来，日志本身就成了要翻的东西。汇总那条
+    // 带着 manifest 的路径，WARN 的逐条明细去那里看。
     const AuditLog = {
         entries: [],
         problemIds: [],
@@ -3991,7 +3994,7 @@
                 this.updateStatus(t('export.exportingProgress', 'export.exportingProgress', i + 1, uuids.length, title), 'info');
 
                 try {
-                    const manifest = await this.exportSingleConversation(uuid, rootDirHandle, type);
+                    const { manifest, folder } = await this.exportSingleConversation(uuid, rootDirHandle, type);
                     successCount++;
                     const issues = deriveManifestIssues(manifest);
                     if (issues.errors.length || issues.warnings.length) {
@@ -4003,7 +4006,10 @@
                             attachments: issues.total,
                             errors: issues.errors.length,
                             preview: tally('preview'),
-                            unavailable: tally('unavailable')
+                            unavailable: tally('unavailable'),
+                            // WARN 只给计数，不逐条列。计数说得出「有几个」，说不出「是哪几个、
+                            // 为什么」，那些都在这份 manifest 里，日志至少要指得出它在哪。
+                            manifest: `${folder}/${MANIFEST_FILE_NAME}`
                         }, issues.errors.length ? 'ERROR' : 'WARN');
                         for (const issue of issues.errors) {
                             AuditLog.append('export.attachment.issue', {
@@ -4038,7 +4044,9 @@
                 failed: uuids.length - successCount,
                 problemConversations: AuditLog.problemIds.length,
                 // 一行一个，方便整段粘走；旁边那个「复制问题 ID」按钮给的是没有缩进的同一份。
-                problemConversationIds: AuditLog.problemIds.length ? AuditLog.idText() : undefined
+                problemConversationIds: AuditLog.problemIds.length ? AuditLog.idText() : undefined,
+                // 怎么读 manifest，整轮只说一次，不在每个问题会话下面重复。
+                details: AuditLog.problemIds.length ? t('log.detailsHint') : undefined
             }, AuditLog.problemIds.length ? 'WARN' : 'INFO');
 
             this.updateStatus(t('export.batchComplete', 'export.batchComplete', successCount, uuids.length), 'success', 5000);
@@ -4057,6 +4065,9 @@
                 currentDirHandle = await currentDirHandle.getDirectoryHandle(part, { create: true });
             }
             const exportDirHandle = currentDirHandle;
+            // 浏览器不给绝对路径，能拿到的只有选中那个目录的名字。从它往下数，
+            // 已经足够在 Finder / 资源管理器里一层层点进去。
+            const folder = [rootDirHandle.name, ...pathParts].filter(Boolean).join('/');
 
             const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
             const historyFileName = `history-${timestamp}.json`;
@@ -4079,11 +4090,13 @@
             await writableHistory.close();
 
             // 批量路径丢掉了附件级的 statusCallback——状态栏一行装不下几百条。
-            // manifest 是结构化的，把它交回去，由批量循环决定什么该进日志。
+            // manifest 是结构化的，把它交回去，由批量循环决定什么该进日志；
+            // folder 一并交回，日志才说得出它落在哪。
             if (type === 'original' || (type === 'custom' && this.tempBatchExportSettings.attachments.mode !== 'none')) {
-                return await ManagerService.exportAttachmentsForConversation(historyData, exportDirHandle, () => {});
+                const manifest = await ManagerService.exportAttachmentsForConversation(historyData, exportDirHandle, () => {});
+                return { manifest, folder };
             }
-            return null;
+            return { manifest: null, folder };
         },
         showBatchExportModal(uuids) {
             document.querySelector('.cpm-modal-overlay')?.remove();

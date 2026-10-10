@@ -113,14 +113,23 @@ Re-reads every `attachments-manifest.json` under the directory and checks what i
 says against what is on disk: every recorded `sha256` is recomputed from the file,
 each manifest's own summary counters are re-tallied from its `assets`, and anything
 that landed without a hash is reported. It prints the `status` × `variant` census,
-the problem conversations, and their ids one per line; it exits non-zero if anything
-needs looking at.
+the problem conversations with every ERROR and WARN spelled out (which file, and for
+a preview each original candidate that was tried and how it failed), and their ids
+one per line; it exits non-zero if anything needs looking at. WARN alone does not
+fail the audit.
 
 The batch export panel keeps a run log of the same problems, but the two decide
 independently and on purpose — the log can only repeat what the manifest claims,
 while this reads the bytes. A 357-conversation export on 2026-09-12 had one
 attachment the server no longer holds reported as an ERROR by the log and a WARN
 here; the disagreement was the bug. Sharing one implementation would have hidden it.
+
+The log counts WARNs per conversation instead of listing them, so a long batch stays
+readable. Each `export.conversation.issues` entry carries a `manifest:` field with
+the path from the folder you picked down to that conversation's manifest, and the
+closing entry says once how to read it: for `variant: preview`, `originalError` says
+why the original was not used; for `status: unavailable`, `error` says what the
+server answered.
 
 ### 4. Claude Artifact HTML downloader (standalone script)
 
