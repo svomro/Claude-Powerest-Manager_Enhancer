@@ -84,6 +84,24 @@ export has 20 distinct fileIds sharing a single sha256 — so keying previous re
 hash lets the last one win and write another attachment's history into this one. `variant`
 describes how *this reference* was obtained; it is not a property of the bytes.
 
+A saved preview is exempt from one check. A local file normally has to match the size
+the history declares, because a truncated original still carries a valid header. A
+preview is a re-encode and never matches, so every re-run used to judge it broken,
+download it again and rewrite it. **Measured 2026-10-10** on a real export: all 17
+saved previews of one conversation were rewritten by a run that changed nothing, while
+its 14 originals were left alone. The exemption holds only when the previous manifest
+recorded exactly these bytes, by hash, as this attachment's preview. Anything else of
+the wrong length is still re-fetched, and a saved preview is still replaced the moment
+its original answers again.
+
+A re-fetch that fails outright no longer erases a usable local copy from the manifest
+either. The entry stays `existing`, keeps its hash and its recorded `variant`, and
+`originalError` lists what each candidate answered. Before, the run a saved preview's
+URL stopped answering would have recorded it as `unavailable` with no hash while the
+file sat on disk. `tests/saved-preview-rerun.test.cjs` gives the attachment its real
+declared size; the earlier re-run tests never did, which is why the size check had
+never fired in them.
+
 A download is also no longer trusted just because it returned 200. Claude answers a
 missing file with `{"type":"error","error":{"type":"not_found_error",…}}`, and a CDN
 can answer with an XML error document; either is recorded as a failure with the

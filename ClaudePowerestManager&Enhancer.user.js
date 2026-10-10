@@ -2669,7 +2669,7 @@
 
                 let existing = null;
                 try {
-                    existing = await this.inspectExistingAttachment(exportDirHandle, fileName, entry.expectedSize);
+                    existing = await this.inspectExistingAttachment(exportDirHandle, fileName, entry.expectedSize, previousManifest, entry);
                     if (existing?.usable && !(await this.existingCopyIsDowngraded(existing, previousManifest, entry))) {
                         result.skipped++;
                         entry.status = 'existing';
@@ -2723,6 +2723,20 @@
                                 continue;
                             }
                         } catch (error) {
+                            // Nothing came back and there is no inline copy, but a usable
+                            // one is already on disk: this run only failed to improve on it.
+                            // Recording that as failed/unavailable would call a file that is
+                            // right here gone.
+                            if (!attachment.inlineFallback && existing?.usable) {
+                                result.skipped++;
+                                entry.status = 'existing';
+                                entry.originalError = [...(error.skipped?.length ? error.skipped : [error.message]),
+                                    'kept the existing local copy because no candidate could be fetched'].join(' | ');
+                                await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                                this.inheritRecordedProvenance(entry, previousManifest);
+                                previousManifest.remember(entry);
+                                continue;
+                            }
                             // The message still carries the image inline; that copy is
                             // the attachment too, and the manifest says which one landed.
                             if (!attachment.inlineFallback) throw error;
@@ -2898,7 +2912,12 @@
                     }
                 }
             }
-            throw lastError || new Error(t('export.noDownloadUrl'));
+            // Every candidate failed. Hand back what each of them answered, not only
+            // the last one: a caller that still holds a usable local copy keeps it,
+            // and the manifest should say why this run could not improve on it.
+            const error = lastError || new Error(t('export.noDownloadUrl'));
+            error.skipped = skipped;
+            throw error;
         },
         // What the bytes are, recorded next to what the name claims. This is the field
         // that makes a preview-instead-of-original substitution visible.
@@ -2968,7 +2987,17 @@
         // serves originals that way (`.png`名 + real JPEG bytes, straight from
         // `/contents`), and discarding those would re-download a file that was already
         // perfect, then risk replacing it with a preview.
-        async inspectExistingAttachment(directoryHandle, fileName, expectedSize = null) {
+        //
+        // The length rule has one exception: a preview this exporter saved itself.
+        // A preview is a re-encode, so it never matches the original's declared size,
+        // and without the exception every re-run judged it broken and downloaded it
+        // again. Measured 2026-10-10 on 028f047f: all 17 saved previews were rewritten
+        // by a run that changed nothing, and the run their preview URL stops
+        // answering would record them as gone while they sit right here. When the
+        // previous manifest recorded exactly these bytes as this attachment's
+        // preview, the length is explained. Anything without that record still has
+        // to match, because a truncated original carries a valid header too.
+        async inspectExistingAttachment(directoryHandle, fileName, expectedSize = null, previousManifest = null, entry = null) {
             let file;
             try {
                 const handle = await directoryHandle.getFileHandle(fileName, { create: false });
@@ -2982,7 +3011,8 @@
             const claimed = extensionMediaType(fileName);
             const problem = describeErrorPayload({ declaredMimeType: claimed, head: inspected.text });
             if (problem) return { file, sniffedType: inspected.sniffedType, usable: false, reason: problem };
-            if (expectedSize != null && file.size !== expectedSize) {
+            if (expectedSize != null && file.size !== expectedSize
+                && previousManifest?.find(entry, await sha256Hex(file))?.variant !== 'preview') {
                 return {
                     file,
                     sniffedType: inspected.sniffedType,
@@ -3129,7 +3159,7 @@
 
                 let existing = null;
                 try {
-                    existing = await this.inspectExistingAttachment(exportDirHandle, fileName, entry.expectedSize);
+                    existing = await this.inspectExistingAttachment(exportDirHandle, fileName, entry.expectedSize, previousManifest, entry);
                     if (existing?.usable && !(await this.existingCopyIsDowngraded(existing, previousManifest, entry))) {
                         entry.status = 'existing';
                         await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
@@ -3160,7 +3190,22 @@
                     } else {
                         const candidates = this.conversationFileUrls(file, orgInfo.uuid, historyData.uuid);
                         if (candidates.length === 0) throw new Error(t('export.noDownloadUrl'));
-                        const downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType, entry.expectedSize);
+                        let downloaded;
+                        try {
+                            downloaded = await this.fetchAttachmentBlob(candidates, entry.mimeType, entry.expectedSize);
+                        } catch (error) {
+                            // 盘上那份本来就能用，回源只是想把它换成原件。整个失败了，它照样
+                            // 是这个附件：记成 failed/unavailable，字节就成了还在盘上、清单却说没有。
+                            if (!existing?.usable) throw error;
+                            entry.status = 'existing';
+                            entry.originalError = [...(error.skipped?.length ? error.skipped : [error.message]),
+                                'kept the existing local copy because no candidate could be fetched'].join(' | ');
+                            await this.recordAttachmentBytes(entry, existing.file, existing.sniffedType);
+                            this.inheritRecordedProvenance(entry, previousManifest);
+                            previousManifest.remember(entry);
+                            console.warn(`${LOG_PREFIX} 回源全部失败，保留本地已有副本 ${fileName}: ${error.message}`);
+                            continue;
+                        }
                         fileContent = downloaded.blob;
                         sniffedType = downloaded.sniffedType;
                         entry.variant = downloaded.variant;
